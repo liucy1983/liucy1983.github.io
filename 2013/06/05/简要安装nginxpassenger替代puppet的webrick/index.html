@@ -1,0 +1,171 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+  <meta charset="utf-8">
+  
+  <title>简要安装Nginx+Passenger替代Puppet的Webrick | Puppet技术站</title>
+  <meta name="author" content="Liu.cy">
+  
+  <meta name="description" content="上篇文章中我们说了如何安装Puppet和Dashboard，然后，讲了在CentOS和Ubuntu上的操作。 然后，我发现，我还是不太适合说Ubuntu的内容，因为我不熟悉它。。。因为我从开始用Linux就是Redhat系列的。
+操作系统是 CentOS 6，安装完成后会使用Nginx替代Puppe">
+  
+  
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+
+  <meta property="og:title" content="简要安装Nginx+Passenger替代Puppet的Webrick"/>
+  <meta property="og:site_name" content="Puppet技术站"/>
+
+  
+    <meta property="og:image" content="undefined"/>
+  
+
+  <link href="/favicon.png" rel="icon">
+  <link rel="alternate" href="/atom.xml" title="Puppet技术站" type="application/atom+xml">
+  <link rel="stylesheet" href="/css/style.css" media="screen" type="text/css">
+  <!--[if lt IE 9]><script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script><![endif]-->
+  
+</head>
+
+
+<body>
+  <header id="header" class="inner"><div class="alignleft">
+  <h1><a href="/">Puppet技术站</a></h1>
+  <h2><a href="/"></a></h2>
+</div>
+<nav id="main-nav" class="alignright">
+  <ul>
+    
+      <li><a href="/">Home</a></li>
+    
+      <li><a href="/archives">Archives</a></li>
+    
+  </ul>
+  <div class="clearfix"></div>
+</nav>
+<div class="clearfix"></div></header>
+  <div id="content" class="inner">
+    <div id="main-col" class="alignleft"><div id="wrapper"><article class="post">
+  
+  <div class="post-content">
+    <header>
+      
+        <div class="icon"></div>
+        <time datetime="2013-06-05T09:27:26.000Z"><a href="/2013/06/05/简要安装nginxpassenger替代puppet的webrick/">Jun 5 2013</a></time>
+      
+      
+  
+    <h1 class="title">简要安装Nginx+Passenger替代Puppet的Webrick</h1>
+  
+
+    </header>
+    <div class="entry">
+      
+        <p>上篇文章中我们说了如何安装Puppet和Dashboard，然后，讲了在CentOS和Ubuntu上的操作。 然后，我发现，我还是不太适合说Ubuntu的内容，因为我不熟悉它。。。因为我从开始用Linux就是Redhat系列的。</p>
+<p>操作系统是 CentOS 6，安装完成后会使用Nginx替代Puppet和Dashboard本身内置的Webrick。</p>
+<div><br><br><em>   #### 添加Passenger YUM源
+
+</em>   #### 安装Nginx+Passenger<br><br><em>   配置Nginx<br>创建目录结构<br><pre class="brush:bash">mkdir -p /etc/puppet/rack/public<br>cp /usr/share/puppet/ext/rack/files/config.ru /etc/puppet/rack/<br>chown -R puppet:puppet /etc/puppet/rack/</pre><br>启动一次Puppet Server以生成密钥<br><pre class="brush:bash">service puppetmaster start<br>service puppetmaster stop</pre><br>添加如下内容至/etc/nginx/conf.d/passenger.conf<br><pre>passenger_use_global_queue on;<br>passenger_max_pool_size 15;<br>passenger_pool_idle_time 300;</pre><br>创建/etc/nginx/conf.d/puppetmaster.conf，内容如下，将puppet.example.com替换为你的主机名。如果启动Nginx报错查不到pem文件，可以查看/var/lib/puppet/ssl/certs，确认文件名。<br><pre>server {<br>    listen                8140 ssl;<br>    server_name            puppet puppet.example.com;<br><br>    passenger_enabled        on;<br>    passenger_set_cgi_param        HTTP_X_CLIENT_DN $ssl_client_s_dn;<br>    passenger_set_cgi_param        HTTP_X_CLIENT_VERIFY $ssl_client_verify;<br><br>    access_log            /var/log/nginx/puppet_access.log;<br>    error_log            /var/log/nginx/puppet_error.log;<br><br>    root                /etc/puppet/rack/public;<br><br>    ssl_certificate            /var/lib/puppet/ssl/certs/puppet.example.com.pem;<br>    ssl_certificate_key        /var/lib/puppet/ssl/private_keys/puppet.example.com.pem;<br>    ssl_crl                /var/lib/puppet/ssl/ca/ca_crl.pem;<br>    ssl_client_certificate        /var/lib/puppet/ssl/certs/ca.pem;<br>    ssl_ciphers            SSLv2:-LOW:-EXPORT:RC4+RSA;<br>    ssl_prefer_server_ciphers    on;<br>    ssl_verify_client        optional;<br>    ssl_verify_depth        1;<br>    ssl_session_cache        shared:SSL:128m;<br>    ssl_session_timeout        5m;<br>}</pre><br>创建/etc/nginx/conf.d/puppetdashboard.conf，内容如下<br><pre>server{<br>    listen            3000;<br>    server_name        puppet;<br><br>    passenger_enabled    on;<br><br>    access_log        /var/log/nginx/puppetdashboard_access.log;<br>    error_log        /var/log/nginx/puppetdashboard_error.log;<br><br>    root            /usr/share/puppet-dashboard/public;<br>}</pre><br>安装完成后，确保puppetmaster和puppet-dashboard服务不启动，puppet-dashboard-workers服务启动。
+
+</em>   验证安装成功<br>启动Nginx<br><pre class="brush:bash">service nginx start<br>chkconfig nginx on</pre><br>查看端口是否在被Nginx监听<br><pre class="brush:bash">lsof -i:8140<br>lsof -i:3000</pre><br>执行puppet agent命令<br><pre class="brush:bash">puppet agent -t —server &lt;你的主机名&gt;</pre><br>访问Dashboard页面<br><pre><a href="http://你的主机名:3000" target="_blank">http://你的主机名:3000</a></pre><br></div>
+      
+    </div>
+    <footer>
+      
+        
+  
+  <div class="categories">
+    <a href="/categories/未分类/">未分类</a>
+  </div>
+
+        
+        
+  <div class="addthis addthis_toolbox addthis_default_style">
+    
+      <a class="addthis_button_facebook_like" fb:like:layout="button_count"></a>
+    
+    
+      <a class="addthis_button_tweet"></a>
+    
+    
+      <a class="addthis_button_google_plusone" g:plusone:size="medium"></a>
+    
+    
+      <a class="addthis_button_pinterest_pinit" pi:pinit:layout="horizontal"></a>
+    
+    <a class="addthis_counter addthis_pill_style"></a>
+  </div>
+  <script type="text/javascript" src="//s7.addthis.com/js/300/addthis_widget.js"></script>
+
+      
+      <div class="clearfix"></div>
+    </footer>
+  </div>
+</article>
+
+
+<section id="comment">
+  <h1 class="title">Comments</h1>
+
+  
+      <div id="fb-root"></div>
+<script>
+  (function(d, s, id) {
+    var js, fjs = d.getElementsByTagName(s)[0];
+    if (d.getElementById(id)) return;
+    js = d.createElement(s); js.id = id;
+    js.src = "//connect.facebook.net/en_US/all.js#xfbml=1&appId=123456789012345";
+    fjs.parentNode.insertBefore(js, fjs);
+  }(document, 'script', 'facebook-jssdk'));
+</script>
+
+<div class="fb-comments" data-href="http://liucy.org/2013/06/05/简要安装nginxpassenger替代puppet的webrick/" data-num-posts="5" data-width="840" data-colorscheme="light"></div>
+      
+  
+</section>
+</div></div>
+    <aside id="sidebar" class="alignright">
+  <div class="search">
+  <form action="//google.com/search" method="get" accept-charset="utf-8">
+    <input type="search" name="q" results="0" placeholder="Search">
+    <input type="hidden" name="q" value="site:liucy.org">
+  </form>
+</div>
+
+  
+<div class="widget tag">
+  <h3 class="title">Categories</h3>
+  <ul class="entry">
+  
+    <li><a href="/categories/未分类/">未分类</a><small>12</small></li>
+  
+  </ul>
+</div>
+
+
+  
+</aside>
+    <div class="clearfix"></div>
+  </div>
+  <footer id="footer" class="inner"><div class="alignleft">
+  
+  &copy; 2013 Liu.cy
+  
+</div>
+<div class="clearfix"></div></footer>
+  <script src="//ajax.googleapis.com/ajax/libs/jquery/2.0.3/jquery.min.js"></script>
+<script src="/js/jquery.imagesloaded.min.js"></script>
+<script src="/js/gallery.js"></script>
+
+
+
+
+<link rel="stylesheet" href="/fancybox/jquery.fancybox.css" media="screen" type="text/css">
+<script src="/fancybox/jquery.fancybox.pack.js"></script>
+<script type="text/javascript">
+(function($){
+  $('.fancybox').fancybox();
+})(jQuery);
+</script>
+
+</body>
+</html>

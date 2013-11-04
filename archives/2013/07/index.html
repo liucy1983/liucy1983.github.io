@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   
-  <title>Archives | Puppet技术站</title>
+  <title>Archives: 2013/7 | Puppet技术站</title>
   <meta name="author" content="Liu.cy">
   
   
@@ -42,210 +42,7 @@
 <div class="clearfix"></div></header>
   <div id="content" class="inner">
     <div id="main-col" class="alignleft"><div id="wrapper">
-<h2 class="archive-title">Archives</h2>
-
-
-  
-    <article class="post">
-  
-  <div class="post-content">
-    <header>
-      
-        <div class="icon"></div>
-        <time datetime="2013-10-17T14:09:04.000Z"><a href="/2013/10/17/puppet执行shell加nohup时可能产生过大临时文件的问题/">Oct 17 2013</a></time>
-      
-      
-  
-    <h1 class="title"><a href="/2013/10/17/puppet执行shell加nohup时可能产生过大临时文件的问题/">Puppet执行Shell加nohup时可能产生过大临时文件的问题</a></h1>
-  
-
-    </header>
-    <div class="entry">
-      
-        <p>这两天生产环境遇到了一个Puppet的问题。经过是这样的，</p>
-<p>监控发现/tmp目录的LVM空间占用过高，然后查看目录没看到有大文件。然后使用lsof |grep /tmp时能看到类似这样的文件 ：</p>
-<p><pre class="brush:plain">haproxy   5182   haproxy  2u   REG   253,0     13392823982  1316206  /tmp/puppet20131016-3600-fw9jj1-0 (deleted)</pre><br>这个文件是已经被删除掉了，但被haproxy进程占用，且内容还在不断增加。</p>
-<p>因为是使用Puppet来调用管理员写的脚本，最开始看到时还以为与Puppet无关，只是因为它调用所以文件才有puppet字样。但后来我想了想，发现这就是Puppet生成的。</p>
-<p>大概的经过是这样，正常情况下，Puppet使用Exec执行一个脚本或命令且provider为shell时，会获取标准输出和标准错误，在执行完成后生成报告，返回Master。所以，它会在/tmp写一个文件来保存临时输出。</p>
-<p>为了验证这个想法，我做了个测试。执行这个命令</p>
-<p><pre class="brush:bash">strace puppet resource exec ‘echo “as”’ provider=shell 2&gt;&amp;1|grep ‘/tmp’</pre><br>然后，我得到了这些内容</p>
-<p><pre class="brush:plain">……<br>stat(&quot;/usr/lib64/site_ruby/tmpdir.rb&quot;, 0x7fffe6e6e780) = -1 ENOENT (No such file or directory)<br>stat(&quot;/usr/lib64/site_ruby/tmpdir.so&quot;, 0x7fffe6e6e780) = -1 ENOENT (No such file or directory)<br>stat(“/usr/lib/ruby/1.8/tmpdir.rb”, {st_mode=S_IFREG|0644, st_size=3783, …}) = 0<br>open(“/usr/lib/ruby/1.8/tmpdir.rb”, O_RDONLY) = 3<br>stat(“/tmp”, {st_mode=S_IFDIR|S_ISVTX|0777, st_size=4096, …}) = 0<br>stat(“/tmp”, {st_mode=S_IFDIR|S_ISVTX|0777, st_size=4096, …}) = 0<br>access(“/tmp”, W_OK)                    = 0<br>stat(“/tmp/puppet20131015-4251-1bo9b07-0.lock”, 0x7fffe6e551b0) = -1 ENOENT (No such file or directory)<br>stat(“/tmp/puppet20131015-4251-1bo9b07-0”, 0x7fffe6e55b70) = -1 ENOENT (No such file or directory)<br>mkdir(“/tmp/puppet20131015-4251-1bo9b07-0.lock”, 0777) = 0<br>open(“/tmp/puppet20131015-4251-1bo9b07-0”, O_RDWR|O_CREAT|O_EXCL, 0600) = 4<br>rmdir(“/tmp/puppet20131015-4251-1bo9b07-0.lock”) = 0<br>stat(“/tmp/puppet20131015-4251-1bo9b07-0”, {st_mode=S_IFREG|0600, st_size=3, …}) = 0<br>open(“/tmp/puppet20131015-4251-1bo9b07-0”, O_RDWR) = 3<br>stat(“/tmp/puppet20131015-4251-1bo9b07-0”, {st_mode=S_IFREG|0600, st_size=3, …}) = 0<br>unlink(“/tmp/puppet20131015-4251-1bo9b07-0”) = 0</pre><br>注：实际上，我在做实验的时候，如果不设置provider=shell是不会有这些内容的，有兴趣的同学可以去查查看为什么 。</p>
-<p>OK，这样来说，这个临时文件确实是Puppet创建的，但是里面是什么呢？为什么一直增大呢？而它为什么又是deleted呢？</p>
-<p>其实，从这篇文章的标题上你也应该能猜出来了，没错，就是nohup搞的鬼。</p>
-<p>上面也说了，我这边是用puppet exec资源来执行管理员写的脚本，而这次执行的脚本大概内容是这样的：</p>
-<p><pre class="brush:plain">#!/bin/sh<br>cd /home/xxx/yyy/<br>nohup bin/haproxy -c conf/haproxy.conf</p>
-<h2>不要问我为什么Haproxy安装在这里，也不要问我为什么不用Service方式</pre></h2>
-<p>正常情况下，我们都知道，使用nohup默认会在当前目录下生成一个nohup.out来保存命令的标准和错误输出。但是，在我们使用Puppet来执行上面这个脚本时，它没有生成这个文件，所以我猜haproxy的输出是不是写入到了这个/tmp/puppetxxxx文件里去了。</p>
-<p>为了验证这个想法，我去问了Google，找到了一个办法去验证。那就是从上面lsof的结果上，第2列是进程号(5182），第4列是文件描述符(2u，2是序号，u代表可读可写，man lsof)。</p>
-<p><pre class="brush:bash">tail /proc/5182/fd/2</pre><br>命令上面的命令，我就看到了里面确实是本来应该写在nohup.out里的输出。</p>
-<p>接下来，就是要问，为什么nohup没有定入nohup.out而是直接输出了，然后被Puppet捕获了呢？</p>
-<p>我再男人一下nohup，看到如下解释：</p>
-<p><pre class="brush:plain">Name</p>
-<p>nohup - run a command immune to hangups, with output to a non-tty<br>Synopsis</p>
-<p>nohup COMMAND [ARG]…<br>nohup OPTION<br>Description</p>
-<p>Run COMMAND, ignoring hangup signals.</p>
-<p>—help<br>display this help and exit<br>—version<br>output version information and exit<br>If standard input is a terminal, redirect it from /dev/null. If standard output is a terminal, append output to ‘nohup.out’ if possible, ‘$HOME/nohup.out’ otherwise. If standard error is a terminal, redirect it to standard output. To save output to FILE, use ‘nohup COMMAND &gt; FILE’.</p>
-<p>NOTE: your shell may have its own version of nohup, which usually supersedes the version described here. Please refer to your shell&#39;s documentation for details about the options it supports.</p>
-<p>Author</p>
-<p>Written by Jim Meyering.</pre><br>如果标准输出是一个terminal，将会把输出追加到nohup.out，如果当前目录的nohup.out不可写，会写到$HOME/nohup.out，这样看来Puppet执行时输出就不是一个Terminal，所以它就没写到nohup.out里。</p>
-<p>然后呢，Puppet执行这个脚本的时候，因为写了&amp;，所以脚本会直接退出，Puppet进程也就退出了，这时Puppet会把/tmp/puppetxxx的内容写到报告，返回Master，然后删掉。但是同时，nohup起来的haproxy确还在不停的输出内容，导致它会锁定这个文件，所以就造成了我最开始描述的情况。</p>
-<p>&nbsp;</p>
-<p>不知道你读到这里是不是明白了，还是晕倒了。。。。。</p>
-<p>最终我给的解决办法是，使用nohup时，把重定向明确加上。</p>
-<p><pre class="brush:bash">nohup bin/haproxy -c conf/haproxy.conf &gt;$HOME/nohup.out 2&gt;&amp;1 &amp;</pre><br>搞定，收工！！</p>
-
-      
-    </div>
-    <footer>
-      
-        
-        
-      
-      <div class="clearfix"></div>
-    </footer>
-  </div>
-</article>
-
-
-  
-    <article class="post">
-  
-  <div class="post-content">
-    <header>
-      
-        <div class="icon"></div>
-        <time datetime="2013-09-08T14:05:56.000Z"><a href="/2013/09/08/aix中使用rpm安装rsync遇到的问题及解决办法/">Sep 8 2013</a></time>
-      
-      
-  
-    <h1 class="title"><a href="/2013/09/08/aix中使用rpm安装rsync遇到的问题及解决办法/">AIX中使用RPM安装RSync遇到的问题及解决办法</a></h1>
-  
-
-    </header>
-    <div class="entry">
-      
-        <p>最近在折腾AIX的系统，它里面本来有一个包管理工具叫installp，但是俺不会用，也不知道从那里找包。</p>
-<p>幸亏AIX提供了RPM的支持，所以安装软件还是用了最熟悉的RPM包。先是由一位刚从阿里来我公司的同学帮我打了AIX上的RPM包，装了Puppet和MCollective。然后我就开始做管理了，但是在后面装rsync的时候出现了一个问题。</p>
-<p>AIX中的软件包基本上有3个来源，分别是</p>
-<ul>
-<li>IBM官方网站(<a href="http://www-03.ibm.com/systems/power/software/aix/linux/toolbox/alpha.html)，官方，但是有的包没有，所以我没从这里下。" target="_blank">http://www-03.ibm.com/systems/power/software/aix/linux/toolbox/alpha.html)，官方，但是有的包没有，所以我没从这里下。</a></li>
-<li>第3方网站perzl.org(<a href="http://www.perzl.org/" target="_blank">http://www.perzl.org/</a>)</li>
-<li>第3方网站Large Open Source Software Archive for AIX(<a href="http://www.bullfreeware.com/" target="_blank">http://www.bullfreeware.com/</a>)<br>这两个第3方网站中，bullfreeware搜包更方便些，所以我基本上基础的RPM包都是从这里下的。</li>
-</ul>
-<p>接下来继续说rsync，我下载的地址是<a href="http://www.bullfreeware.com/affichage.php?id=1653。" target="_blank">http://www.bullfreeware.com/affichage.php?id=1653。</a></p>
-<p>依赖分别有gettext, popt, libiconv，我也装上了。但是在执行rsync的命令的时候出错，错误大概是下面这个样子，因为我们的生产环境限制太严格，这是我记忆下来的大概的错误的样子。</p>
-<p><pre class="brush:plain">exec(): 0509-036 Cannot load program /usr/bin/rsync because of the following errors:<br>        0509-022 Cannot load module /usr/lib/popt.a(popt.so).<br>        0509-150   Dependent module /usr/lib/libiconv.a(libiconv.so.2) could not be loaded.<br>        0509-152   Member libiconv.so.2 is not found in archive<br>        0509-022 Cannot load module rpm.<br>        0509-150   Dependent module /usr/lib/popt.a(popt.so). could not be loaded.<br>        0509-022 Cannot load module .</pre><br>它是说不能加载libiconv.so.2，我去找了下，确实没有这个文件，libiconv.a到是有的。然后用rpm -ql libiconv这个包查看，列表里面也有没有libconv.so.2呀，奇怪了。然后使用ldd /usr/bin/rsync命令查看它需要的共享库的时候也是报找不到libiconv.so.2这个文件。</p>
-<p>按理来说，libiconv.so.2这个名字的文件，肯定是属于libiconv这个包的，但是为什么它包里面就没有呢？我就开始在Google上找了，找啊找，翻了半天，看到了这个讨论。<a href="http://bbs.chinaunix.net/thread-1692140-1-1.html，这里最后[yddll](http://bbs.chinaunix.net/space-uid-46610.html)给了个提示，说是man" target="_blank">http://bbs.chinaunix.net/thread-1692140-1-1.html，这里最后[yddll](http://bbs.chinaunix.net/space-uid-46610.html)给了个提示，说是man</a> ar。</p>
-<p>于是我就来man了</p>
-<p><pre class="brush:plain">AR(1)                        GNU Development Tools                       AR(1)</p>
-<p>NAME<br>       ar - create, modify, and extract from archives</p>
-<p>SYNOPSIS<br>       ar [—plugin name] [-X32_64] [-]p[mod [relpos] [count]] archive<br>       [member…]</p>
-<p>DESCRIPTION<br>       The GNU ar program creates, modifies, and extracts from archives.  An<br>       archive is a single file holding a collection of other files in a<br>       structure that makes it possible to retrieve the original individual<br>       files (called members of the archive).</p>
-<pre><code>   The original files’ <span class="property">contents</span>, mode (permissions), timestamp, owner, <span class="keyword">and</span>
-   group are preserved <span class="keyword">in</span> <span class="keyword">the</span> archive, <span class="keyword">and</span> can be restored <span class="function_start"><span class="keyword">on</span> <span class="title">extraction</span></span>.
-
-   GNU ar can maintain archives <span class="keyword">whose</span> members have names <span class="keyword">of</span> any <span class="property">length</span>;
-   however, depending <span class="function_start"><span class="keyword">on</span> <span class="title">how</span></span> ar <span class="keyword">is</span> configured <span class="function_start"><span class="keyword">on</span> <span class="title">your</span></span> system, a limit <span class="function_start"><span class="keyword">on</span>
-</span>   member-<span class="property">name</span> <span class="property">length</span> may be imposed <span class="keyword">for</span> compatibility <span class="keyword">with</span> archive
-   formats maintained <span class="keyword">with</span> other tools.  If <span class="keyword">it</span> exists, <span class="keyword">the</span> limit <span class="keyword">is</span> often
-   <span class="number">15</span> <span class="property">characters</span> (typical <span class="keyword">of</span> formats related <span class="keyword">to</span> a.out) <span class="keyword">or</span> <span class="number">16</span> <span class="property">characters</span>
-   (typical <span class="keyword">of</span> formats related <span class="keyword">to</span> coff).&lt;/pre&gt;</code></pre>
-<p>创建，修改，解压archives，既然人家提示了，那我就试试呗</p>
-<p><pre class="brush:bash">&gt;ar -v -t /usr/lib/libiconv.a<br>r—r—r— 2/2 116968 Nov 10 17:22 2010 shr4.o<br>r—r—r— 2/2 117218 Nov 10 17:22 2010 shr.o</pre><br>就在试完之后，我忽然想到一点，不对呀，我使用rpm安装的软件都是放在了/opt/freeware下面，然后做的软链接到实际的目录，但是这个文件好像不是link，然后分别查看了下这两个文件</p>
-<p><pre class="brush:bash">ls -l /usr/lib/libiconv.a<br>ls -l /opt/freeware/lib/libiconv.a</pre><br>抱歉，还是上面的原因，查看的结果我没办法贴出来。反正区别是这两个不一样大，我又使用ar命令查看了下/opt下的那个libiconv.a，结果就发现了libiconv.so.2文件。</p>
-<p>所以最终的解决办法是，删掉/usr/lib/libiconv.a，然后创建link文件指向/opt/freeware/lib/libiconv.a，再次执行rsync命令，成功，搞定。</p>
-<p>updated 2013.10.17</p>
-<p>后来发现，使用IBM官网的包就不会有这样的问题，所以以后我都会尽量在AIX上用官网的RPM包。</p>
-<p>&nbsp;</p>
-
-      
-    </div>
-    <footer>
-      
-        
-        
-      
-      <div class="clearfix"></div>
-    </footer>
-  </div>
-</article>
-
-
-  
-    <article class="post">
-  
-  <div class="post-content">
-    <header>
-      
-        <div class="icon"></div>
-        <time datetime="2013-08-19T09:48:29.000Z"><a href="/2013/08/19/让puppet-apply程序发送报告到master/">Aug 19 2013</a></time>
-      
-      
-  
-    <h1 class="title"><a href="/2013/08/19/让puppet-apply程序发送报告到master/">让puppet apply程序发送报告到master</a></h1>
-  
-
-    </header>
-    <div class="entry">
-      
-        <p>这是一个比较奇怪的需求，我这里想使用puppet apply -e ‘’的方式直接执行一些命令，而不用去Master取任务，这样可以减少操作环节，降低出错几率。</p>
-<p>然后呢，却又想把报告发送到Master（或是其它报告分析程序），使执行结果统一化。</p>
-<p>puppet apply命令默认会把报告存在本地，而不通过rest接口发送到Master，所以我需要做些配置来修改。</p>
-<p>当然，在puppet.conf和<a href="http://docs.puppetlabs.com/references/latest/configuration.html里面我是翻了半天也没找到配置项，又翻了一圈源码之后，发现这东西与indirection/terminus相关，然后又看到了这个页面http://docs.puppetlabs.com/guides/configuring.html才找到了最终的解决办法。" target="_blank">http://docs.puppetlabs.com/references/latest/configuration.html里面我是翻了半天也没找到配置项，又翻了一圈源码之后，发现这东西与indirection/terminus相关，然后又看到了这个页面http://docs.puppetlabs.com/guides/configuring.html才找到了最终的解决办法。</a></p>
-<p>添加/etc/puppet/routes.yaml，内容为</p>
-<p><pre class="brush:plain">—-<br>  apply:<br>    report:<br>      terminus: rest</pre><br>搞定。</p>
-
-      
-    </div>
-    <footer>
-      
-        
-        
-      
-      <div class="clearfix"></div>
-    </footer>
-  </div>
-</article>
-
-
-  
-    <article class="post">
-  
-  <div class="post-content">
-    <header>
-      
-        <div class="icon"></div>
-        <time datetime="2013-08-05T16:49:47.000Z"><a href="/2013/08/06/独立puppet-fileserver时遇到的一个问题/">Aug 6 2013</a></time>
-      
-      
-  
-    <h1 class="title"><a href="/2013/08/06/独立puppet-fileserver时遇到的一个问题/">独立Puppet Fileserver时遇到的一个问题</a></h1>
-  
-
-    </header>
-    <div class="entry">
-      
-        <p>今天搭Puppet环境时遇到了一个问题。</p>
-<p>我是准备把Puppet的Fileserver单独拿出来，为了以后压力大时做多机用。</p>
-<p>结构是，Puppet Master中使用Nginx+Passenger，完成Master和CA的功能，同时Nginx做为代理卸载ssl后将/production/file_(metadata|content)/test/的请求转发至fileserver。</p>
-<p>Fileserver的Puppet也是使用Nginx+Passenger，设置ca=false，并配置Nginx不启用ssl。配置fileserver.conf增加一个挂载点。</p>
-<p><pre class="brush:plain">[test]<br>  path /data/test<br>  allow puppet.liucy.org</pre><br>但是这样配置完成后，fileserver的功能一直报错，使用curl测试</p>
-<p><pre class="brush:bash">curl -k -H “Accept: yaml” <a href="http://fs.liucy.org:8140/production/file_metadata/test" target="_blank">http://fs.liucy.org:8140/production/file_metadata/test</a></pre><br>返回的消息是</p>
-<p><pre class="brush:plain">Forbidden request: fs.liucy.org(172.16.164.138) access to /file_metadata/shells/common [find] at :117</pre><br>然后，我晚上花了4个钟头，来翻Puppet的源码，找了N多个文件，输出了一堆变量之后找到了问题点，然后还以为是Bug。结果再一追踪，我擦，原来直接加一句auth no就搞定了。</p>
-<p><pre class="brush:plain">[test]<br>  path /data/test<br>  auth no<br>  allow puppet.liucy.org</pre><br>这句话的意思就是说如果它为true/yes，就要访问本服务是https，经过了SSL加密，要不然怎么配置都不会让访问的。改成no/false的话就允许在Puppet/Nginx直接提供HTTP没有SSL的情况下访问自己。</p>
-<p>在此记录一下，纪念自己的悲催行为。。。</p>
-
-      
-    </div>
-    <footer>
-      
-        
-        
-      
-      <div class="clearfix"></div>
-    </footer>
-  </div>
-</article>
+<h2 class="archive-title">2013/7</h2>
 
 
   
@@ -651,8 +448,6 @@ result</code></pre>
 
   <nav id="pagination">
   
-  
-    <a href="/archives/page/2/" class="alignright next">Next</a>
   
   <div class="clearfix"></div>
 </nav>

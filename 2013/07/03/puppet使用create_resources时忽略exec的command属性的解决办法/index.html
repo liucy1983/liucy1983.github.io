@@ -1,0 +1,233 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+  <meta charset="utf-8">
+  
+  <title>Puppet使用create_resources时忽略exec的command属性的解决办法 | Puppet技术站</title>
+  <meta name="author" content="Liu.cy">
+  
+  <meta name="description" content="今天遇到了一个奇怪的问题,应该是Puppet的一个Bug
+就是在使用create_resources函数的时候，类型是user啥的都OK。但是当我使用exec类型的时候它就忽略command参数了
+比如说我写
+puppet apply -e &quot;create_resources(exec,{">
+  
+  
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+
+  <meta property="og:title" content="Puppet使用create_resources时忽略exec的command属性的解决办法"/>
+  <meta property="og:site_name" content="Puppet技术站"/>
+
+  
+    <meta property="og:image" content="undefined"/>
+  
+
+  <link href="/favicon.png" rel="icon">
+  <link rel="alternate" href="/atom.xml" title="Puppet技术站" type="application/atom+xml">
+  <link rel="stylesheet" href="/css/style.css" media="screen" type="text/css">
+  <!--[if lt IE 9]><script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script><![endif]-->
+  
+</head>
+
+
+<body>
+  <header id="header" class="inner"><div class="alignleft">
+  <h1><a href="/">Puppet技术站</a></h1>
+  <h2><a href="/"></a></h2>
+</div>
+<nav id="main-nav" class="alignright">
+  <ul>
+    
+      <li><a href="/">Home</a></li>
+    
+      <li><a href="/archives">Archives</a></li>
+    
+  </ul>
+  <div class="clearfix"></div>
+</nav>
+<div class="clearfix"></div></header>
+  <div id="content" class="inner">
+    <div id="main-col" class="alignleft"><div id="wrapper"><article class="post">
+  
+  <div class="post-content">
+    <header>
+      
+        <div class="icon"></div>
+        <time datetime="2013-07-03T14:07:36.000Z"><a href="/2013/07/03/puppet使用create_resources时忽略exec的command属性的解决办法/">Jul 3 2013</a></time>
+      
+      
+  
+    <h1 class="title">Puppet使用create_resources时忽略exec的command属性的解决办法</h1>
+  
+
+    </header>
+    <div class="entry">
+      
+        <p><span style="line-height: 1.714285714; font-size: 1rem;">今天遇到了一个奇怪的问题,应该是Puppet的一个Bug</span></p>
+<p>就是在使用create_resources函数的时候，类型是user啥的都OK。但是当我使用exec类型的时候它就忽略command参数了</p>
+<p>比如说我写</p>
+<p><pre class="brush:bash">puppet apply -e &quot;create_resources(exec,{‘ls’=&gt;{command=&gt;‘wkskd’,provider=&gt;shell,logoutput=&gt;true}})&quot;</pre><br>执行的时候不会显示报错，而是直接执行ls命令，不管我写的command</p>
+<p>我今天翻了半天,找了个临时的办法解决了这个问题</p>
+<p>我觉得exec资源出现这种问题的原因是它的title可以不是唯一的</p>
+<p>然后Puppet将ls‘=&gt;{command=&gt;’wkskd&#39;,provider=&gt;shell,logoutput=&gt;true}转化成资源时，会将哈希中的3个键值分别转化，</p>
+<p>然后在做健值赋值的时候，我抓 出来的结果是这样的</p>
+<p><pre class="brush:plain">provider =&gt; shell</p>
+<p>Exec[ls]{:provider=&gt;“shell”}</p>
+<p>command =&gt; wkskd</p>
+<p>Exec[ls]{:provider=&gt;“shell”,:command=&gt;“wkskd”}</p>
+<p>name =&gt; ls</p>
+<p>Exec[ls]{:provider=&gt;“shell”,:command=&gt;“ls”}</pre><br>也就是说，我前面已经指定了exec资源的command，但是在重新指定name时候，它却把command覆盖了</p>
+<p>我还没找到Exec怎么解决这个问题，所以就临时把这个循环的代码改了下</p>
+<p><pre class="brush:ruby">  # Create a Puppet::Resource instance from this parser resource.</p>
+<h1>We plan, at some point, on not needing to do this conversion, but</h1>
+<h1>it&#39;s sufficient for now.</h1>
+<p>  def to_resource<br>    result = Puppet::Resource.new(type, title)</p>
+<pre><code>to_hash<span class="variable">.each</span> <span class="keyword">do</span> |p, v|
+  <span class="keyword">if</span> v<span class="variable">.is_a</span>?(Puppet::Resource)
+    v = Puppet::Resource<span class="variable">.new</span>(v<span class="variable">.type</span>, v<span class="variable">.title</span>)
+  elsif v<span class="variable">.is_a</span>?(Array)
+    <span class="preprocessor"># flatten resource references arrays</span>
+    v = v<span class="variable">.flatten</span> <span class="keyword">if</span> v<span class="variable">.flatten</span><span class="variable">.find</span> { |av| av<span class="variable">.is_a</span>?(Puppet::Resource) }
+    v = v<span class="variable">.collect</span> <span class="keyword">do</span> |av|
+      av = Puppet::Resource<span class="variable">.new</span>(av<span class="variable">.type</span>, av<span class="variable">.title</span>) <span class="keyword">if</span> av<span class="variable">.is_a</span>?(Puppet::Resource)
+      av
+    <span class="keyword">end</span>
+  <span class="keyword">end</span>
+
+  <span class="preprocessor"># If the value is an array with only one value, then</span>
+  <span class="preprocessor"># convert it to a single value.  This is largely so that</span>
+  <span class="preprocessor"># the database interaction doesn't have to worry about</span>
+  <span class="preprocessor"># whether it returns an array or a string.</span>
+  result[p] = <span class="keyword">if</span> v<span class="variable">.is_a</span>?(Array) and v<span class="variable">.length</span> == <span class="number">1</span>
+                v[<span class="number">0</span>]
+              <span class="keyword">else</span>
+                v
+              <span class="keyword">end</span>
+<span class="keyword">end</span>
+
+result<span class="variable">.file</span> = <span class="keyword">self</span><span class="variable">.file</span>
+result<span class="variable">.line</span> = <span class="keyword">self</span><span class="variable">.line</span>
+result<span class="variable">.exported</span> = <span class="keyword">self</span><span class="variable">.exported</span>
+result<span class="variable">.virtual</span> = <span class="keyword">self</span><span class="variable">.virtual</span>
+result<span class="variable">.tag</span>(*<span class="keyword">self</span><span class="variable">.tags</span>)
+
+result</code></pre>
+<p>  end</pre><br>这是puppet/parser/resource.rb中转化成资源的那部分</p>
+<p>to_hash.each do |p, v|，这句话是将command=&gt;‘wkskd’,provider=&gt;shell,logoutput=&gt;true转化为Hash，然后循环</p>
+<p>我改成了to_hash.sort.reverse.map do |p,v|</p>
+<p>这样就把key的顺序改了，name在前，command在后，这样就不会有name覆盖command的情况了</p>
+<p>2013.6.25 22:40</p>
+<p>折腾了两天，终于把这个问题搞定了。</p>
+<p>昨天在上面的解决办法之后，我继续往下翻，发现不用上面的方法也可以解决。</p>
+<p>修改/usr/lib/ruby/site_ruby/1.8/puppet/resource.rb中的parameter_name函数，它的功能是在将将字符串形式的定义转化为资源时，查询类型的参数名。默认情况下，它会查看给定的参数是否与:name相同，如果是，返回的参数就是namevar，也就是说在转化Exec时，name =&gt; ‘ls’属性值对中的name进到这个函数时，会与:name相同，这时返回的param就会是exec的namevar，也就是command。</p>
+<p><pre class="brush:ruby">  # Produce a canonical method name.<br>  def parameter_name(param)<br>    param = param.to_s.downcase.to_sym<br>    if param == :name and n = namevar<br>      param = namevar<br>    end<br>    param<br>  end</pre><br>所以，我在这里加了一句，当资源类型是Exec且param为name时跳过namevar这个判断。</p>
+<p><pre class="brush:ruby">  # Produce a canonical method name.<br>  def parameter_name(param)<br>    param = param.to_s.downcase.to_sym<br>    if param == :name and n = namevar<br>      unless resource_type.to_s == ‘Puppet::Type::Exec’ and param.to_s == ‘name’<br>        param = namevar<br>      end<br>    end<br>    param<br>  end</pre><br><span style="line-height: 1.714285714; font-size: 1rem;">这样，再去执行puppet apply …就没问题了。</span></p>
+<p>所以昨天很Happy了一会儿。但也只是一会儿，等我再去用puppet agent -t执行的时候，它又不行了。还是原来的问题。经过了昨天晚上，今天一天和今天晚上的折腾，翻Puppet源码，加Debug，终于让我找到原因了。</p>
+<p>经过上面的修改后，Puppet Master在编译Catalog就不会出错了，但是Agent接收Catalog之后又会经历一次资源的转化。而且这个过程是只有使用create_resource函数创建的资源才会有，正常定义的资源是没问题的。</p>
+<p>解决办法是修改/usr/lib/ruby/site_ruby/1.8/puppet/resource/catalog.rb中的self.from_pson函数，下面这段是指将create_resource中第二个参数转化为资源</p>
+<p><pre class="brush:ruby">    if resources = data[‘resources’]<br>      resources = PSON.parse(resources) if resources.is_a?(String)<br>      resources.each do |res|<br>        resource_from_pson(result, res)<br>      end<br>    end</pre><br>而这里res的值就会是</p>
+<p><pre class="brush:plain">{“tags”=&gt;[“exec”, “ls”, “node”, “default”, “class”], “parameters”=&gt;{“name”=&gt;“ls”, “provider”=&gt;“shell”, “logoutput”=&gt;true, “command”=&gt;“/bin/ls -l”}, “type”=&gt;“Exec”, “exported”=&gt;false, “title”=&gt;“ls”}</pre><br>实际上，这个问题只在CentOS上出现，我的MBP上跑的正常，然后我也把这里的res打出来的时候发现它里面没有“name”=&gt;“ls”这个值对，所以我就直接把它删去了。形成下面的样子。</p>
+<p><pre class="brush:ruby">    if resources = data[‘resources’]<br>      resources = PSON.parse(resources) if resources.is<em>a?(String)<br>      resources.each do |res|<br>        res[“parameters”].delete(“name”) if res[“type”] == ‘Exec’<br>        resource_from_pson(result, res)<br>      end<br>    end</pre><br><span style="line-height: 1.714285714; font-size: 1rem;">然后再执行puppet agent -t的时候，就显示正常了。^</em>^</span></p>
+<p><span style="color: #ff0000;">最后，记得重启Puppet Master，否则属于Master那边的代码不生效。</span></p>
+
+      
+    </div>
+    <footer>
+      
+        
+  
+  <div class="categories">
+    <a href="/categories/未分类/">未分类</a>
+  </div>
+
+        
+        
+  <div class="addthis addthis_toolbox addthis_default_style">
+    
+      <a class="addthis_button_facebook_like" fb:like:layout="button_count"></a>
+    
+    
+      <a class="addthis_button_tweet"></a>
+    
+    
+      <a class="addthis_button_google_plusone" g:plusone:size="medium"></a>
+    
+    
+      <a class="addthis_button_pinterest_pinit" pi:pinit:layout="horizontal"></a>
+    
+    <a class="addthis_counter addthis_pill_style"></a>
+  </div>
+  <script type="text/javascript" src="//s7.addthis.com/js/300/addthis_widget.js"></script>
+
+      
+      <div class="clearfix"></div>
+    </footer>
+  </div>
+</article>
+
+
+<section id="comment">
+  <h1 class="title">Comments</h1>
+
+  
+      <div id="fb-root"></div>
+<script>
+  (function(d, s, id) {
+    var js, fjs = d.getElementsByTagName(s)[0];
+    if (d.getElementById(id)) return;
+    js = d.createElement(s); js.id = id;
+    js.src = "//connect.facebook.net/en_US/all.js#xfbml=1&appId=123456789012345";
+    fjs.parentNode.insertBefore(js, fjs);
+  }(document, 'script', 'facebook-jssdk'));
+</script>
+
+<div class="fb-comments" data-href="http://liucy.org/2013/07/03/puppet使用create_resources时忽略exec的command属性的解决办法/" data-num-posts="5" data-width="840" data-colorscheme="light"></div>
+      
+  
+</section>
+</div></div>
+    <aside id="sidebar" class="alignright">
+  <div class="search">
+  <form action="//google.com/search" method="get" accept-charset="utf-8">
+    <input type="search" name="q" results="0" placeholder="Search">
+    <input type="hidden" name="q" value="site:liucy.org">
+  </form>
+</div>
+
+  
+<div class="widget tag">
+  <h3 class="title">Categories</h3>
+  <ul class="entry">
+  
+    <li><a href="/categories/未分类/">未分类</a><small>12</small></li>
+  
+  </ul>
+</div>
+
+
+  
+</aside>
+    <div class="clearfix"></div>
+  </div>
+  <footer id="footer" class="inner"><div class="alignleft">
+  
+  &copy; 2013 Liu.cy
+  
+</div>
+<div class="clearfix"></div></footer>
+  <script src="//ajax.googleapis.com/ajax/libs/jquery/2.0.3/jquery.min.js"></script>
+<script src="/js/jquery.imagesloaded.min.js"></script>
+<script src="/js/gallery.js"></script>
+
+
+
+
+<link rel="stylesheet" href="/fancybox/jquery.fancybox.css" media="screen" type="text/css">
+<script src="/fancybox/jquery.fancybox.pack.js"></script>
+<script type="text/javascript">
+(function($){
+  $('.fancybox').fancybox();
+})(jQuery);
+</script>
+
+</body>
+</html>

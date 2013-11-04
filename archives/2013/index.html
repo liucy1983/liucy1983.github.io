@@ -52,17 +52,587 @@
     <header>
       
         <div class="icon"></div>
-        <time datetime="2013-11-04T17:03:47.000Z"><a href="/2013/11/05/hello-world/">Nov 5 2013</a></time>
+        <time datetime="2013-10-17T14:09:04.000Z"><a href="/2013/10/17/puppet执行shell加nohup时可能产生过大临时文件的问题/">Oct 17 2013</a></time>
       
       
   
-    <h1 class="title"><a href="/2013/11/05/hello-world/">Hello World</a></h1>
+    <h1 class="title"><a href="/2013/10/17/puppet执行shell加nohup时可能产生过大临时文件的问题/">Puppet执行Shell加nohup时可能产生过大临时文件的问题</a></h1>
   
 
     </header>
     <div class="entry">
       
-        <p>Welcome to <a href="http://zespia.tw/hexo" target="_blank">Hexo</a>! This is your very first post. Check <a href="http://zespia.tw/hexo/docs" target="_blank">documentation</a> to learn how to use.</p>
+        <p>这两天生产环境遇到了一个Puppet的问题。经过是这样的，</p>
+<p>监控发现/tmp目录的LVM空间占用过高，然后查看目录没看到有大文件。然后使用lsof |grep /tmp时能看到类似这样的文件 ：</p>
+<p><pre class="brush:plain">haproxy   5182   haproxy  2u   REG   253,0     13392823982  1316206  /tmp/puppet20131016-3600-fw9jj1-0 (deleted)</pre><br>这个文件是已经被删除掉了，但被haproxy进程占用，且内容还在不断增加。</p>
+<p>因为是使用Puppet来调用管理员写的脚本，最开始看到时还以为与Puppet无关，只是因为它调用所以文件才有puppet字样。但后来我想了想，发现这就是Puppet生成的。</p>
+<p>大概的经过是这样，正常情况下，Puppet使用Exec执行一个脚本或命令且provider为shell时，会获取标准输出和标准错误，在执行完成后生成报告，返回Master。所以，它会在/tmp写一个文件来保存临时输出。</p>
+<p>为了验证这个想法，我做了个测试。执行这个命令</p>
+<p><pre class="brush:bash">strace puppet resource exec ‘echo “as”’ provider=shell 2&gt;&amp;1|grep ‘/tmp’</pre><br>然后，我得到了这些内容</p>
+<p><pre class="brush:plain">……<br>stat(&quot;/usr/lib64/site_ruby/tmpdir.rb&quot;, 0x7fffe6e6e780) = -1 ENOENT (No such file or directory)<br>stat(&quot;/usr/lib64/site_ruby/tmpdir.so&quot;, 0x7fffe6e6e780) = -1 ENOENT (No such file or directory)<br>stat(“/usr/lib/ruby/1.8/tmpdir.rb”, {st_mode=S_IFREG|0644, st_size=3783, …}) = 0<br>open(“/usr/lib/ruby/1.8/tmpdir.rb”, O_RDONLY) = 3<br>stat(“/tmp”, {st_mode=S_IFDIR|S_ISVTX|0777, st_size=4096, …}) = 0<br>stat(“/tmp”, {st_mode=S_IFDIR|S_ISVTX|0777, st_size=4096, …}) = 0<br>access(“/tmp”, W_OK)                    = 0<br>stat(“/tmp/puppet20131015-4251-1bo9b07-0.lock”, 0x7fffe6e551b0) = -1 ENOENT (No such file or directory)<br>stat(“/tmp/puppet20131015-4251-1bo9b07-0”, 0x7fffe6e55b70) = -1 ENOENT (No such file or directory)<br>mkdir(“/tmp/puppet20131015-4251-1bo9b07-0.lock”, 0777) = 0<br>open(“/tmp/puppet20131015-4251-1bo9b07-0”, O_RDWR|O_CREAT|O_EXCL, 0600) = 4<br>rmdir(“/tmp/puppet20131015-4251-1bo9b07-0.lock”) = 0<br>stat(“/tmp/puppet20131015-4251-1bo9b07-0”, {st_mode=S_IFREG|0600, st_size=3, …}) = 0<br>open(“/tmp/puppet20131015-4251-1bo9b07-0”, O_RDWR) = 3<br>stat(“/tmp/puppet20131015-4251-1bo9b07-0”, {st_mode=S_IFREG|0600, st_size=3, …}) = 0<br>unlink(“/tmp/puppet20131015-4251-1bo9b07-0”) = 0</pre><br>注：实际上，我在做实验的时候，如果不设置provider=shell是不会有这些内容的，有兴趣的同学可以去查查看为什么 。</p>
+<p>OK，这样来说，这个临时文件确实是Puppet创建的，但是里面是什么呢？为什么一直增大呢？而它为什么又是deleted呢？</p>
+<p>其实，从这篇文章的标题上你也应该能猜出来了，没错，就是nohup搞的鬼。</p>
+<p>上面也说了，我这边是用puppet exec资源来执行管理员写的脚本，而这次执行的脚本大概内容是这样的：</p>
+<p><pre class="brush:plain">#!/bin/sh<br>cd /home/xxx/yyy/<br>nohup bin/haproxy -c conf/haproxy.conf</p>
+<h2>不要问我为什么Haproxy安装在这里，也不要问我为什么不用Service方式</pre></h2>
+<p>正常情况下，我们都知道，使用nohup默认会在当前目录下生成一个nohup.out来保存命令的标准和错误输出。但是，在我们使用Puppet来执行上面这个脚本时，它没有生成这个文件，所以我猜haproxy的输出是不是写入到了这个/tmp/puppetxxxx文件里去了。</p>
+<p>为了验证这个想法，我去问了Google，找到了一个办法去验证。那就是从上面lsof的结果上，第2列是进程号(5182），第4列是文件描述符(2u，2是序号，u代表可读可写，man lsof)。</p>
+<p><pre class="brush:bash">tail /proc/5182/fd/2</pre><br>命令上面的命令，我就看到了里面确实是本来应该写在nohup.out里的输出。</p>
+<p>接下来，就是要问，为什么nohup没有定入nohup.out而是直接输出了，然后被Puppet捕获了呢？</p>
+<p>我再男人一下nohup，看到如下解释：</p>
+<p><pre class="brush:plain">Name</p>
+<p>nohup - run a command immune to hangups, with output to a non-tty<br>Synopsis</p>
+<p>nohup COMMAND [ARG]…<br>nohup OPTION<br>Description</p>
+<p>Run COMMAND, ignoring hangup signals.</p>
+<p>—help<br>display this help and exit<br>—version<br>output version information and exit<br>If standard input is a terminal, redirect it from /dev/null. If standard output is a terminal, append output to ‘nohup.out’ if possible, ‘$HOME/nohup.out’ otherwise. If standard error is a terminal, redirect it to standard output. To save output to FILE, use ‘nohup COMMAND &gt; FILE’.</p>
+<p>NOTE: your shell may have its own version of nohup, which usually supersedes the version described here. Please refer to your shell&#39;s documentation for details about the options it supports.</p>
+<p>Author</p>
+<p>Written by Jim Meyering.</pre><br>如果标准输出是一个terminal，将会把输出追加到nohup.out，如果当前目录的nohup.out不可写，会写到$HOME/nohup.out，这样看来Puppet执行时输出就不是一个Terminal，所以它就没写到nohup.out里。</p>
+<p>然后呢，Puppet执行这个脚本的时候，因为写了&amp;，所以脚本会直接退出，Puppet进程也就退出了，这时Puppet会把/tmp/puppetxxx的内容写到报告，返回Master，然后删掉。但是同时，nohup起来的haproxy确还在不停的输出内容，导致它会锁定这个文件，所以就造成了我最开始描述的情况。</p>
+<p>&nbsp;</p>
+<p>不知道你读到这里是不是明白了，还是晕倒了。。。。。</p>
+<p>最终我给的解决办法是，使用nohup时，把重定向明确加上。</p>
+<p><pre class="brush:bash">nohup bin/haproxy -c conf/haproxy.conf &gt;$HOME/nohup.out 2&gt;&amp;1 &amp;</pre><br>搞定，收工！！</p>
+
+      
+    </div>
+    <footer>
+      
+        
+        
+      
+      <div class="clearfix"></div>
+    </footer>
+  </div>
+</article>
+
+
+  
+    <article class="post">
+  
+  <div class="post-content">
+    <header>
+      
+        <div class="icon"></div>
+        <time datetime="2013-09-08T14:05:56.000Z"><a href="/2013/09/08/aix中使用rpm安装rsync遇到的问题及解决办法/">Sep 8 2013</a></time>
+      
+      
+  
+    <h1 class="title"><a href="/2013/09/08/aix中使用rpm安装rsync遇到的问题及解决办法/">AIX中使用RPM安装RSync遇到的问题及解决办法</a></h1>
+  
+
+    </header>
+    <div class="entry">
+      
+        <p>最近在折腾AIX的系统，它里面本来有一个包管理工具叫installp，但是俺不会用，也不知道从那里找包。</p>
+<p>幸亏AIX提供了RPM的支持，所以安装软件还是用了最熟悉的RPM包。先是由一位刚从阿里来我公司的同学帮我打了AIX上的RPM包，装了Puppet和MCollective。然后我就开始做管理了，但是在后面装rsync的时候出现了一个问题。</p>
+<p>AIX中的软件包基本上有3个来源，分别是</p>
+<ul>
+<li>IBM官方网站(<a href="http://www-03.ibm.com/systems/power/software/aix/linux/toolbox/alpha.html)，官方，但是有的包没有，所以我没从这里下。" target="_blank">http://www-03.ibm.com/systems/power/software/aix/linux/toolbox/alpha.html)，官方，但是有的包没有，所以我没从这里下。</a></li>
+<li>第3方网站perzl.org(<a href="http://www.perzl.org/" target="_blank">http://www.perzl.org/</a>)</li>
+<li>第3方网站Large Open Source Software Archive for AIX(<a href="http://www.bullfreeware.com/" target="_blank">http://www.bullfreeware.com/</a>)<br>这两个第3方网站中，bullfreeware搜包更方便些，所以我基本上基础的RPM包都是从这里下的。</li>
+</ul>
+<p>接下来继续说rsync，我下载的地址是<a href="http://www.bullfreeware.com/affichage.php?id=1653。" target="_blank">http://www.bullfreeware.com/affichage.php?id=1653。</a></p>
+<p>依赖分别有gettext, popt, libiconv，我也装上了。但是在执行rsync的命令的时候出错，错误大概是下面这个样子，因为我们的生产环境限制太严格，这是我记忆下来的大概的错误的样子。</p>
+<p><pre class="brush:plain">exec(): 0509-036 Cannot load program /usr/bin/rsync because of the following errors:<br>        0509-022 Cannot load module /usr/lib/popt.a(popt.so).<br>        0509-150   Dependent module /usr/lib/libiconv.a(libiconv.so.2) could not be loaded.<br>        0509-152   Member libiconv.so.2 is not found in archive<br>        0509-022 Cannot load module rpm.<br>        0509-150   Dependent module /usr/lib/popt.a(popt.so). could not be loaded.<br>        0509-022 Cannot load module .</pre><br>它是说不能加载libiconv.so.2，我去找了下，确实没有这个文件，libiconv.a到是有的。然后用rpm -ql libiconv这个包查看，列表里面也有没有libconv.so.2呀，奇怪了。然后使用ldd /usr/bin/rsync命令查看它需要的共享库的时候也是报找不到libiconv.so.2这个文件。</p>
+<p>按理来说，libiconv.so.2这个名字的文件，肯定是属于libiconv这个包的，但是为什么它包里面就没有呢？我就开始在Google上找了，找啊找，翻了半天，看到了这个讨论。<a href="http://bbs.chinaunix.net/thread-1692140-1-1.html，这里最后[yddll](http://bbs.chinaunix.net/space-uid-46610.html)给了个提示，说是man" target="_blank">http://bbs.chinaunix.net/thread-1692140-1-1.html，这里最后[yddll](http://bbs.chinaunix.net/space-uid-46610.html)给了个提示，说是man</a> ar。</p>
+<p>于是我就来man了</p>
+<p><pre class="brush:plain">AR(1)                        GNU Development Tools                       AR(1)</p>
+<p>NAME<br>       ar - create, modify, and extract from archives</p>
+<p>SYNOPSIS<br>       ar [—plugin name] [-X32_64] [-]p[mod [relpos] [count]] archive<br>       [member…]</p>
+<p>DESCRIPTION<br>       The GNU ar program creates, modifies, and extracts from archives.  An<br>       archive is a single file holding a collection of other files in a<br>       structure that makes it possible to retrieve the original individual<br>       files (called members of the archive).</p>
+<pre><code>   The original files’ <span class="property">contents</span>, mode (permissions), timestamp, owner, <span class="keyword">and</span>
+   group are preserved <span class="keyword">in</span> <span class="keyword">the</span> archive, <span class="keyword">and</span> can be restored <span class="function_start"><span class="keyword">on</span> <span class="title">extraction</span></span>.
+
+   GNU ar can maintain archives <span class="keyword">whose</span> members have names <span class="keyword">of</span> any <span class="property">length</span>;
+   however, depending <span class="function_start"><span class="keyword">on</span> <span class="title">how</span></span> ar <span class="keyword">is</span> configured <span class="function_start"><span class="keyword">on</span> <span class="title">your</span></span> system, a limit <span class="function_start"><span class="keyword">on</span>
+</span>   member-<span class="property">name</span> <span class="property">length</span> may be imposed <span class="keyword">for</span> compatibility <span class="keyword">with</span> archive
+   formats maintained <span class="keyword">with</span> other tools.  If <span class="keyword">it</span> exists, <span class="keyword">the</span> limit <span class="keyword">is</span> often
+   <span class="number">15</span> <span class="property">characters</span> (typical <span class="keyword">of</span> formats related <span class="keyword">to</span> a.out) <span class="keyword">or</span> <span class="number">16</span> <span class="property">characters</span>
+   (typical <span class="keyword">of</span> formats related <span class="keyword">to</span> coff).&lt;/pre&gt;</code></pre>
+<p>创建，修改，解压archives，既然人家提示了，那我就试试呗</p>
+<p><pre class="brush:bash">&gt;ar -v -t /usr/lib/libiconv.a<br>r—r—r— 2/2 116968 Nov 10 17:22 2010 shr4.o<br>r—r—r— 2/2 117218 Nov 10 17:22 2010 shr.o</pre><br>就在试完之后，我忽然想到一点，不对呀，我使用rpm安装的软件都是放在了/opt/freeware下面，然后做的软链接到实际的目录，但是这个文件好像不是link，然后分别查看了下这两个文件</p>
+<p><pre class="brush:bash">ls -l /usr/lib/libiconv.a<br>ls -l /opt/freeware/lib/libiconv.a</pre><br>抱歉，还是上面的原因，查看的结果我没办法贴出来。反正区别是这两个不一样大，我又使用ar命令查看了下/opt下的那个libiconv.a，结果就发现了libiconv.so.2文件。</p>
+<p>所以最终的解决办法是，删掉/usr/lib/libiconv.a，然后创建link文件指向/opt/freeware/lib/libiconv.a，再次执行rsync命令，成功，搞定。</p>
+<p>updated 2013.10.17</p>
+<p>后来发现，使用IBM官网的包就不会有这样的问题，所以以后我都会尽量在AIX上用官网的RPM包。</p>
+<p>&nbsp;</p>
+
+      
+    </div>
+    <footer>
+      
+        
+        
+      
+      <div class="clearfix"></div>
+    </footer>
+  </div>
+</article>
+
+
+  
+    <article class="post">
+  
+  <div class="post-content">
+    <header>
+      
+        <div class="icon"></div>
+        <time datetime="2013-08-19T09:48:29.000Z"><a href="/2013/08/19/让puppet-apply程序发送报告到master/">Aug 19 2013</a></time>
+      
+      
+  
+    <h1 class="title"><a href="/2013/08/19/让puppet-apply程序发送报告到master/">让puppet apply程序发送报告到master</a></h1>
+  
+
+    </header>
+    <div class="entry">
+      
+        <p>这是一个比较奇怪的需求，我这里想使用puppet apply -e ‘’的方式直接执行一些命令，而不用去Master取任务，这样可以减少操作环节，降低出错几率。</p>
+<p>然后呢，却又想把报告发送到Master（或是其它报告分析程序），使执行结果统一化。</p>
+<p>puppet apply命令默认会把报告存在本地，而不通过rest接口发送到Master，所以我需要做些配置来修改。</p>
+<p>当然，在puppet.conf和<a href="http://docs.puppetlabs.com/references/latest/configuration.html里面我是翻了半天也没找到配置项，又翻了一圈源码之后，发现这东西与indirection/terminus相关，然后又看到了这个页面http://docs.puppetlabs.com/guides/configuring.html才找到了最终的解决办法。" target="_blank">http://docs.puppetlabs.com/references/latest/configuration.html里面我是翻了半天也没找到配置项，又翻了一圈源码之后，发现这东西与indirection/terminus相关，然后又看到了这个页面http://docs.puppetlabs.com/guides/configuring.html才找到了最终的解决办法。</a></p>
+<p>添加/etc/puppet/routes.yaml，内容为</p>
+<p><pre class="brush:plain">—-<br>  apply:<br>    report:<br>      terminus: rest</pre><br>搞定。</p>
+
+      
+    </div>
+    <footer>
+      
+        
+        
+      
+      <div class="clearfix"></div>
+    </footer>
+  </div>
+</article>
+
+
+  
+    <article class="post">
+  
+  <div class="post-content">
+    <header>
+      
+        <div class="icon"></div>
+        <time datetime="2013-08-05T16:49:47.000Z"><a href="/2013/08/06/独立puppet-fileserver时遇到的一个问题/">Aug 6 2013</a></time>
+      
+      
+  
+    <h1 class="title"><a href="/2013/08/06/独立puppet-fileserver时遇到的一个问题/">独立Puppet Fileserver时遇到的一个问题</a></h1>
+  
+
+    </header>
+    <div class="entry">
+      
+        <p>今天搭Puppet环境时遇到了一个问题。</p>
+<p>我是准备把Puppet的Fileserver单独拿出来，为了以后压力大时做多机用。</p>
+<p>结构是，Puppet Master中使用Nginx+Passenger，完成Master和CA的功能，同时Nginx做为代理卸载ssl后将/production/file_(metadata|content)/test/的请求转发至fileserver。</p>
+<p>Fileserver的Puppet也是使用Nginx+Passenger，设置ca=false，并配置Nginx不启用ssl。配置fileserver.conf增加一个挂载点。</p>
+<p><pre class="brush:plain">[test]<br>  path /data/test<br>  allow puppet.liucy.org</pre><br>但是这样配置完成后，fileserver的功能一直报错，使用curl测试</p>
+<p><pre class="brush:bash">curl -k -H “Accept: yaml” <a href="http://fs.liucy.org:8140/production/file_metadata/test" target="_blank">http://fs.liucy.org:8140/production/file_metadata/test</a></pre><br>返回的消息是</p>
+<p><pre class="brush:plain">Forbidden request: fs.liucy.org(172.16.164.138) access to /file_metadata/shells/common [find] at :117</pre><br>然后，我晚上花了4个钟头，来翻Puppet的源码，找了N多个文件，输出了一堆变量之后找到了问题点，然后还以为是Bug。结果再一追踪，我擦，原来直接加一句auth no就搞定了。</p>
+<p><pre class="brush:plain">[test]<br>  path /data/test<br>  auth no<br>  allow puppet.liucy.org</pre><br>这句话的意思就是说如果它为true/yes，就要访问本服务是https，经过了SSL加密，要不然怎么配置都不会让访问的。改成no/false的话就允许在Puppet/Nginx直接提供HTTP没有SSL的情况下访问自己。</p>
+<p>在此记录一下，纪念自己的悲催行为。。。</p>
+
+      
+    </div>
+    <footer>
+      
+        
+        
+      
+      <div class="clearfix"></div>
+    </footer>
+  </div>
+</article>
+
+
+  
+    <article class="post">
+  
+  <div class="post-content">
+    <header>
+      
+        <div class="icon"></div>
+        <time datetime="2013-07-27T06:01:00.000Z"><a href="/2013/07/27/mcollective环境简单安装/">Jul 27 2013</a></time>
+      
+      
+  
+    <h1 class="title"><a href="/2013/07/27/mcollective环境简单安装/">MCollective环境简单安装</a></h1>
+  
+
+    </header>
+    <div class="entry">
+      
+        <p>这段时间正在研究MColletive的结构。应 <a href="http://weibo.com/opendoc" title="@守住每一天" target="_blank">@守住每一天</a> 的要求，写个简单的安装过程文档。</p>
+<p>首先要了解下MCollective的拓扑结构。<br><a href="http://liucy.org/wp-content/uploads/2013/07/mc.gif"><img src="http://liucy.org/wp-content/uploads/2013/07/mc.gif" alt="mc"></a><br>如上图所示，在MCollective环境中，有3个角色，分别是：</p>
+<ul>
+<li><span style="line-height: 1.714285714; font-size: 1rem;">Servers：服务器端，可以通过MCollective控制的机器，一般来说是我们的测试或是线上环境跑的服务器。</span></li>
+<li><span style="line-height: 1.714285714; font-size: 1rem;">Client： 客户端，用来发送命令到需要的服务器中执行。实际上可以认为它是控制端，我们可以安装在Puppet Master中，或是自己电脑上用来控制你的服务器干活儿。</span></li>
+<li><span style="line-height: 1.714285714; font-size: 1rem;">Middleware：中间件，MCollective的clients和servers并不直接通信，而是通过这个中间件来路由消息的。推荐完成中间件功能的软件是ActiveMQ，当然如果你有能力，也可以换别的MQ软件。</span><br>用过Puppet的人们都会知道，Puppet的Master与Agent之间的通信都经过了SSL加密，每个客户端都有各自的证书。MCollective也类似，不过不同的是，在MCollective环境中有两个层面的加密和验证的事情：</li>
+</ul>
+<p>1. 传输层<em>   MCollective servers/client与ActiveMQ之间的通信加密。防止服务器通讯过程中被监听，而通过CA验证后，也可以防止中间人攻击发生。
+</em>   我们这次安装过程中，ActiveMQ会使用Puppet现有的CA拷贝来验证证书的有效性，而servers/clients会使用Puppet环境中已经使用现有CA颁发的证书来通讯。server/clients与ActiveMQ的通讯由Connector Plugin完成。</p>
+<p>2. 应用层<em>   通过security plugin完成，每个client用户拥有唯一的key，所有服务器共享同一个key。每个服务器节点保存所有授权过的client public key。
+</em>   一个服务器在接受到请求时，如果请求的key不在自己保存的授权过的列表中的时候，它会拒绝掉这个请求。<br><em>   如果后面你使用ActionPolicy Plugin，它可以提供更细粒度的客户端控制。
+</em>   所以这个的功能是用于控制那个客户端可以管理那些服务器。<br><a href="http://liucy.org/wp-content/uploads/2013/07/Untitled.jpg"><img src="http://liucy.org/wp-content/uploads/2013/07/Untitled.jpg" alt="MCollective_Authorization"></a></p>
+<p>介绍大概就是这个样子。下面说安装过程。</p>
+<p><span style="line-height: 1.714285714; font-size: 1rem;">1. 凭证准备</span></p>
+<p><span style="line-height: 24px;">传输层(ActiveMQ):</span></p>
+<ul>
+<li><span style="line-height: 1.714285714; font-size: 1rem;"><strong>密码：</strong>用于连接ActiveMQ的用户名和密码。我们(我和puppetlabs写文档的人)建议用户名用</span><span style="line-height: 1.714285714; font-size: 1rem;"><em>mcollective</em>，并创建一个健壮的密码。(在这个文档里我用<em>liucy.org</em>)</span></li>
+<li><span style="line-height: 1.714285714; font-size: 1rem;"><strong>CA：</strong>使用Puppet现有的CA，因为大家都在用Puppet对吧，而且CA会在Puppet初始验证的时候下发到每个服务器上。所以直接拿来用就好了。（$certdir/ca.pem — /var/lib/puppet/ssl/certs/ca.pem）</span></li>
+<li><span style="line-height: 1.714285714; font-size: 1rem;"><strong>ActiveMQ证书：</strong>如果你的ActiveMQ服务器已经在Puppet管理之下，可以用已有的证书。或者是可以直接在Puppet Master生成一个新的证书(sudo puppet cert generate activemq.liucy.org)，证书位置为$certdir/&lt;NAME&gt;.pem，$privatekeydir/&lt;NAME&gt;.pem(/var/lib/puppet/ssl/{certs,private_keys)/&lt;NAME&gt;.epm)。</span></li>
+<li><p><span style="line-height: 1.714285714; font-size: 1rem;"><strong>Server证书：</strong>使用现有Puppet Agent中的证书。位于$certdir/&lt;NAME&gt;.pem和$privatekeydir/&lt;NAME&gt;.pem(/var/lib/puppet/ssl/{certs,private_keys)/&lt;NAME&gt;.pem)。</span><br>应用层：</p>
+</li>
+<li><p><strong>共享的服务器KEY：</strong>登录<span style="line-height: 1.714285714; font-size: 1rem;">Puppet Master使用sudo puppet cert generate mcollective-servers生成新的key。</span></p>
+</li>
+<li><strong>客户端证书：</strong><span style="line-height: 1.714285714; font-size: 1rem;">MCollective Client是可以有多个的，且可以在同一台服务器中不同用户做为不同的client。</span><br><strong>2. 部署中间件</strong></li>
+</ul>
+<address><br><pre class="brush:plain">注：中间件Puppetlabs官方建议使用ActiveMQ，但有别的软件如RabbitMQ也是可以的。我建议如果不是特别必须，最好用ActiveMQ。</pre><br></address>
+
+<ul>
+<li><span style="line-height: 1.714285714; font-size: 1rem;"><strong>安装：</strong>查看我前面的文章安装Puppetlabs的YUM源，然后yum install activemq就安装完成了。</span></li>
+<li><span style="line-height: 1.714285714; font-size: 1rem;"><strong>配置文件：</strong>下载ActiveMQ的activemq.xml的</span><a href="https://raw.github.com/puppetlabs/marionette-collective/master/ext/activemq/examples/single-broker/activemq.xml" target="_blank">配置样本</a><span style="line-height: 1.714285714; font-size: 1rem;">，放到/etc/activemq目录中。</span></li>
+<li><p><span style="line-height: 1.714285714; font-size: 1rem;"><strong>mcollective用户：</strong>打开activemq.xml，找到plugins节，并插入以下内容，修改密码项并记住你设置的密码。</span></p>
+<pre class="brush:xml">&lt;plugins&gt;
+  &lt;simpleAuthenticationPlugin&gt;
+    &lt;users&gt;
+      &lt;authenticationUser username="mcollective" password="liucy.org" groups="mcollective,everyone"/&gt;
+      &lt;authenticationUser username="admin" password="liucy.org" groups="mcollective,admins,everyone"/&gt;
+    &lt;/users&gt;
+  &lt;/simpleAuthenticationPlugin&gt;
+  &lt;!-- ... authorization goes below... --&gt;
+&lt;/plugins&gt;</pre>
+</li>
+<li><p><span style="line-height: 1.714285714; font-size: 1rem;"><strong>生成Keystores：</strong>登录activemq主机，假定主机名为activemq.liucy.org并已经做过Puppet证书的验证，在/var/lib/puppet/ssl/certs目录中有activemq.liucy.org.pem。</span></p>
+<pre class="brush:bash">mkdir ~/mq_credentials
+cd ~/mq_credentials
+sudo keytool -import -alias "liucy.org" -file /var/lib/puppet/ssl/certs/ca.pem -keystore truststore.jks
+sudo cat /var/lib/puppet/ssl/private_keys/activemq.liucy.org.pem /var/lib/puppet/ssl/certs/activemq.liucy.org.pem &gt; temp.pem
+sudo openssl pkcs12 -export -in temp.pem -out activemq.p12 -name activemq.liucy.org
+sudo keytool -importkeystore  -destkeystore keystore.jks -srckeystore activemq.p12 -srcstoretype PKCS12 -alias activemq.liucy.org
+# 上面的命令过程中需要输入几次密码，可以直接设置一个非常复杂的并记住
+# 命令完成后会在当前目录生成keystroe.jks和truststore.jks，把它们拷入/etc/activemq目录。</pre>
+</li>
+<li><p><span style="line-height: 1.714285714; font-size: 1rem;"> <strong>配置SSL：</strong>在activemq.xml中找到刚才的plugin节，在其下面插入如下内容</span></p>
+<pre class="brush:xml">        &lt;sslContext&gt;
+      &lt;sslContext
+        keyStore="keystore.jks" keyStorePassword="#上面生成keystroes时的密码#"
+        trustStore="truststore.jks" trustStorePassword="#上面生成keystores时的密码#"
+      /&gt;
+    &lt;/sslContext&gt;</pre>
+找到transportConnectors节修改成如下形式。
+<pre class="brush:xml">        &lt;transportConnectors&gt;
+        &lt;transportConnector name="stomp" uri="stomp+ssl://0.0.0.0:61614?needClientAuth=true"/&gt;
+    &lt;/transportConnectors&gt;</pre>
+<pre class="brush:plain">注：在ActiveMQ 5.5版本的activemq.xml中，&lt;broker&gt;元素的第一层子元素的书写位置必须是按字母表来排序的，也就是说sslContext元素要写在plugins后面，transportConnectors元素要写在systemusage后面。这是一个奇怪的设计，在5.6以后的版本中取消了。但是Pupppetlabs当前的YUM源中给的是5.5，所以大家要小心。</pre>
+</li>
+<li><p><span style="line-height: 1.714285714; font-size: 1rem;"> <strong>启动activemq：</strong></span></p>
+<pre class="brush:bash">service activemq start</pre>
+</li>
+<li><p><span style="line-height: 1.714285714; font-size: 1rem;"> 确认ActiveMQ服务器允许61614端口入站请求</span><br>3. 安装配置MCollective Server</p>
+</li>
+</ul>
+<p>其实写到这里的时候，我有点发愁，因为这完全不符合“简单安装”这个名字吗，上面已经写了这么多，结果才装完MQ。。。。。</p>
+<p>实际上，我在装完MC环境之后，写了一个Puppet的模块，来搞定ActiveMQ和MCollective Server，Cleint的部分比较麻烦，但也由Puppet管理了不少。所以，我想，先列出来所有的步骤吧，让人们先了解都有那些步骤，然后我后面会把写的模块也共享出来供各位借鉴。</p>
+<p>然后我们继续。。</p>
+<ul>
+<li><strong>安装：</strong><span style="line-height: 1.714285714; font-size: 1rem;">在有puppetlabs源的前提下执行yum install mcollective</span></li>
+<li><strong>凭证：</strong><span style="line-height: 1.714285714; font-size: 1rem;"><br>在凭证准备的过程中，我们在Puppet Master使用sudo puppet cert generate mcollective-servers生成了共享证书，而证书会保存成/var/lib/puppet/ssl/{private_keys,public_keys}/mcollective-server.pem。我们将它们分别保存成server_private.pem和server_public.pem再拷贝到每个客户端的/etc/mcollective目录。实际上，这个操作我们可以在Puppet模块中使用file资源完成。 </span><span style="font-size: 1rem; line-height: 1.714285714;"><br>然后是客户端证书，创建/etc/mcollective/clients，用来保存我们在下一步配置客户端时生成的证书。同样，这个目录我们也可以使用Puppet的file资源来同步，而且这样做的好处是，当我们创建了新的客户端证书时，可以方便的把它们同步到服务器中。</span></li>
+<li><p>Fact文件：<span style="line-height: 1.714285714; font-size: 1rem;"><span style="line-height: 1.714285714; font-size: 1rem;"><br>MCollective命令在执行时会根据服务器中的facts判断是否接受执行某个任务，而读取facts的实现方式是读取/etc/mcollectie/facts.yaml，而不是每次执行facter命令。所以我们需要手动生成这个文件。<br>当然，这部分同样是使用Puppet完成的，因为mc server是每台机器都要安装，你要是每台都手动操作的话，累死你。<br>在模块里这样写就行了：</span></span></p>
+<pre class="brush:ruby">file{"/etc/mcollective/facts.yaml":
+  owner    =&gt; root,
+  group    =&gt; root,
+  mode     =&gt; 400,
+  loglevel =&gt; debug, # reduce noise in Puppet reports
+  content  =&gt; inline_template("&lt;%= scope.to_hash.reject { |k,v| k.to_s =~ /(uptime_seconds|timestamp|free)/ }.to_yaml %&gt;"), # exclude rapidly changing facts
+}</pre>
+</li>
+<li><p>配置文件：这是配置mc server的最后一步了，生成/etc/mcollective/server.cfg文件。<br>这个文件稍微有点麻烦。原因是因为当你使用MCollective的功能越多时，这个文件的配置项就越多，而且有可能会一部分机器有这个配置，另一部分有那个配置。<br>不过好处是，当你用到那个地步时，你使用Puppet的能力也一定会随之增长。所以，我现在就只写个简单的配置，让我们的环境能跑起来。<br>然后，同样，这样配置文件是使用Puppet来完成的，MCollective官方文档里提供了它的模板（PS：这篇文章绝大部分—95%—的思路、文字都来源于官方文档，估计我只是翻译了一下），我把它贴在下面。然后提供一些翻译，告诉各位，这个配置文件都有那几部分内容，配置时又需要小心什么。<br><pre class="brush:ruby">&lt;% ssldir = ‘/var/lib/puppet/ssl’ %&gt; ##这里新建了ssldir变量，用于标识ssl文件目录</p>
+<h1>/etc/mcollective/server.cfg</h1>
+</li>
+</ul>
+<h1>ActiveMQ connector settings:</h1>
+<p>connector = activemq    ## connector plugin，连接插件，这里先用的是activemq插件<br>direct_addressing = 1   ## 是否支持直连模式，也就是直接指定一台机器执行命令，而不是广播<br>plugin.activemq.pool.size = 1    ## activemq连接池，可以配置多个activemq<br>plugin.activemq.pool.1.host = &lt;%= @activemq_server %&gt;  ##activemq服务器地址，如果你是用Puppet来配置，就在调用类的时候把activemq_server变量赋值，如果是直接使用就把这里换成你实际的服务器地址，比如plugin.activemq.pool.1.host = activemq.liucy.org<br>plugin.activemq.pool.1.port = 61614  ## 连接activemq的端口，这个我们在配置它的时候是指定的了。不记得的话可以翻上面的配置。<br>plugin.activemq.pool.1.user = mcollective ## 连接activemq的用户，这个也是我们在上面配置的<br>plugin.activemq.pool.1.password = &lt;%= @activemq_mcollective_password %&gt;  ## 密码，不用我说了吧<br>plugin.activemq.pool.1.ssl = 1  ## 连接activemq是否使用ssl<br>plugin.activemq.pool.1.ssl.ca = &lt;%= ssldir %&gt;/certs/ca.pem  ## CA的地址<br>plugin.activemq.pool.1.ssl.cert = &lt;%= ssldir %&gt;/certs/&lt;%= scope.lookupvar(‘::clientcert’) %&gt;.pem  ## 我们在传输层凭证准备的时候的Server证书，也就是puppet agent的证书，/var/lib/puppet/ssl/certs/主机名.liucy.org.pem<br>plugin.activemq.pool.1.ssl.key = &lt;%= ssldir %&gt;/private_keys/&lt;%= scope.lookupvar(‘::clientcert’) %&gt;.pem  ## /var/lib/puppet/ssl/private_keys/主机名.liucy.org.pem<br>plugin.activemq.pool.1.ssl.fallback = 0</p>
+<h1>SSL security plugin settings:</h1>
+<p>securityprovider = ssl ## 应用层验证方式，ssl<br>plugin.ssl_client_cert_dir = /etc/mcollective/clients ## 存放客户端证书的目录，我们在上面已经创建了，但是还没有存证书进去，等下面配置完客户端后就会有了。<br>plugin.ssl_server_private = /etc/mcollective/server_private.pem  ## 凭证准备时，生成的共享Server key，我们在上面的操作中也将它们保存在了/etc/mcollective目录<br>plugin.ssl_server_public = /etc/mcollective/server_public.pem</p>
+<h1>Facts, identity, and classes:</h1>
+<p>identity = &lt;%= scope.lookupvar(‘::fqdn’) %&gt;  ## 主机标识，FQDN<br>factsource = yaml  ## 我们上面写的facts文件，源格式是yaml，下面是指定的文件路径<br>plugin.yaml = /etc/mcollective/facts.yaml<br>classesfile = /var/lib/puppet/state/classes.txt ## Puppet类文件，此文件记录上次获取的Catalog中都有那些类</p>
+<h1>No additional subcollectives:</h1>
+<p>collectives = mcollective  ## subcollectives，分组成功<br>main_collective = mcollective  ## 主组</p>
+<h1>Registration:</h1>
+<h1>We don&#39;t configure a listener, and only send these messages to keep the</h1>
+<h1>Stomp connection alive. This will use the default “agentlist” registration</h1>
+<h1>plugin.</h1>
+<p>registerinterval = 600  ## 应该是类似于心跳机制吧，定时发送信息到ActiveMQ以确保主机存活</p>
+<h1>Auditing (optional):</h1>
+<h1>If you turn this on, you must arrange to rotate the log file it creates.</h1>
+<p>rpcaudit = 1  ## 审计功能配置<br>rpcauditprovider = logfile<br>plugin.rpcaudit.logfile = /var/log/mcollective-audit.log</p>
+<h1>Authorization:</h1>
+<h1>If you turn this on now, you won&#39;t be able to issue most MCollective</h1>
+<h1>commands, although <code>mco ping</code> will work. You should deploy the</h1>
+<h1>ActionPolicy plugin before uncommenting this; see “Deploy Plugins” below.</h1>
+<h1>rpcauthorization = 1  ## 更细粒度的权限设置插件，我们这里暂时没有启用</h1>
+<h1>rpcauthprovider = action_policy</h1>
+<h1>plugin.actionpolicy.allow_unconfigured = 1</h1>
+<h1>Logging:</h1>
+<p>logger_type = file  ## 日志相关配置<br>loglevel = info<br>logfile = /var/log/mcollective.log<br>keeplogs = 5<br>max_log_size = 2097152<br>logfacility = user</p>
+<h1>Platform defaults:</h1>
+<h1>These settings differ based on platform; the default config file created by</h1>
+<h1>the package should include correct values. If you are managing settings as</h1>
+<h1>resources, you can ignore them, but with a template you&#39;ll have to account</h1>
+<h1>for the differences.</h1>
+<p>&lt;% if scope.lookupvar(‘::osfamily’) == ‘RedHat’ -%&gt;  ## 不同Linux发行版中保存MCollective插件的路径是不同的，所以这里写了一个判断。如果你确定你只使用CentOS或是Ubuntu，可以直接写对应的路径就好。<br>libdir = /usr/libexec/mcollective<br>daemonize = 1<br>&lt;% elsif scope.lookupvar(‘::osfamily’) == ‘Debian’ -%&gt;<br>libdir = /usr/share/mcollective/plugins<br>daemonize = 1<br>&lt;% else -%&gt;</p>
+<h1>INSERT PLATFORM-APPROPRIATE VALUES FOR LIBDIR AND DAEMONIZE</h1>
+<p>&lt;% end %&gt;</pre><br>4. 安装配置MCollective Client</p>
+<ul>
+<li><span style="line-height: 1.714285714; font-size: 1rem;"><strong>安装：</strong>yum install mcollective-client</span></li>
+<li><strong>生成凭证：</strong> 官网上关于这部分的配置写的非常悬乎，弄了一堆的命令。主要是因为，他们想的是做为client，目标是人，也就是管理员。而这个管理员是复数，一个大公司中有多个管理员，那么就要给每人一个管理机的普通用户，他们登录上来之后执行mco命令去控制自己有权限的服务器。所以才在用户的家目录下创建了.mcollective.d目录，每个用户都有自己的证书和配置。<br>而，在我周边的运维同鞋圈子中，一个人搞定一个公司网络的情况居多，也就是说，不需要这么复杂的配置，我就是root用户登录puppet master然后执行mco命令就好了。所以下面的内容就是为了这个需求准备的。<br>官方的文档里，这部分执行了下面的命令：<br><pre class="brush:bash">mkdir -p ~/.mcollective.d/credentials<br>puppet certificate generate &lt;NAME&gt; —ssldir ~/.mcollective.d/credentials —ca-location remote —ca_server &lt;CA PUPPET MASTER<br>puppet certificate find &lt;NAME&gt; —ssldir ~/.mcollective.d/credentials —ca-location remote —ca_server &lt;CA PUPPET MASTER&gt;<br>puppet certificate find mcollective-servers —ssldir ~/.mcollective.d/credentials —ca-location remote —ca_server &lt;CA PUPPET MASTER&gt;<br>puppet certificate find ca —ssldir ~/.mcollective.d/credentials —ca-location remote —ca_server &lt;CA PUPPET MASTER&gt;</pre><br>这几个命令的目的是通过Puppet Master的CA为mc client的用户生成一份新的证书，验证完成后把certs/&lt;name&gt;.pem和private_keys/&lt;name&gt;.pem放到.mcollective.d/credential目录下，然后再把ca.pem，mcollective-server.pem文件也拉进来。<br>而在我们的需求中，我不需要生成新的证书，因为我是Puppet Master，我也不需要下载ca.pem和mcollective-server.pem，因为我在前面的操作中也生成了。所以这部分是不需要操作的。直接进入下面的配置文件步骤。</li>
+<li><strong>配置文件：</strong>因为我们就只有一个mc client，也是用的root用户，所以要修改的就是/etc/mcollective/client.cfg。模板如下，同时，也和上面一样，里面会讲一下各项配置的用途。<br><pre class="brush:ruby">&lt;% ssldir = ‘/var/lib/puppet/ssl’ %&gt;  ## ssldir变量<br>connector = activemq  ## connector plugin: activemq，下面的服务器，密码之类的不再复述<br>direct_addressing = 1<br>plugin.activemq.pool.size = 1<br>plugin.activemq.pool.1.host = &lt;%= activemq_server %&gt;<br>plugin.activemq.pool.1.port = 61614<br>plugin.activemq.pool.1.user = mcollective<br>plugin.activemq.pool.1.password = &lt;%= mcollective_password %&gt;<br>plugin.activemq.pool.1.ssl = 1<br>plugin.activemq.pool.1.ssl.ca = &lt;%= ssldir %&gt;/certs/ca.pem  ##  ca.pem，因为自己就是CA，所以可以直接使用<br>plugin.activemq.pool.1.ssl.cert = &lt;%= ssldir %&gt;/certs/puppet.liucy.org.pem  ## 使用本机puppet master的证书和key<br>plugin.activemq.pool.1.ssl.key = &lt;%= ssldir %&gt;/private_keys/puppet.liucy.org.pem<br>plugin.activemq.pool.1.ssl.fallback = 0</li>
+</ul>
+<p>securityprovider = ssl<br>plugin.ssl_server_public = &lt;%= ssldir %&gt;/certs/mcollective-servers.pem  ## 共享server key，生成就是在本机，所以可以直接使用<br>plugin.ssl_client_private = &lt;%= ssldir %&gt;/private_keys/puppet.liucy.org.pem  ## client key/certs直接使用本机Puppet Master的<br>plugin.ssl_client_public = &lt;%= ssldir %&gt;/certs/puppet.liucy.org.pem</p>
+<p>default_discovery_method = mc<br>direct_addressing_threshold = 10<br>ttl = 60<br>color = 1<br>rpclimitmethod = first</p>
+<p>collectives = mcollective<br>main_collective = mcollective</p>
+<p>libdir = /usr/libexec/mcollective<br>helptemplatedir = /etc/mcollective</p>
+<h1>Facts</h1>
+<p>factsource = yaml<br>plugin.yaml = /etc/mcollective/facts.yaml</pre><br>这样最简单的MCollective Client的配置就完成了。当然，还有一个动作是上面配置Server的时候没做的，就是把/var/lib/puppet/ssl/certs/puppet.liucy.org.pem拷贝进每台MC Server的/etc/mcollective/clients目录。然后重启mcollective server就一切都完成了。尝试使用mco ping命令来测试吧。<br>5. 部署插件</p>
+<p>to be continued..</p>
+
+      
+    </div>
+    <footer>
+      
+        
+        
+      
+      <div class="clearfix"></div>
+    </footer>
+  </div>
+</article>
+
+
+  
+    <article class="post">
+  
+  <div class="post-content">
+    <header>
+      
+        <div class="icon"></div>
+        <time datetime="2013-07-19T06:12:03.000Z"><a href="/2013/07/19/puppet使用详解-入门/">Jul 19 2013</a></time>
+      
+      
+  
+    <h1 class="title"><a href="/2013/07/19/puppet使用详解-入门/">Puppet使用详解-入门</a></h1>
+  
+
+    </header>
+    <div class="entry">
+      
+        <p>[gview file=&quot;<a href="http://liucy.org/wp-content/uploads/2013/07/Puppet使用详解-入门.pptx">http://liucy.org/wp-content/uploads/2013/07/Puppet使用详解-入门.pptx</a>&quot;]</p>
+
+      
+    </div>
+    <footer>
+      
+        
+        
+      
+      <div class="clearfix"></div>
+    </footer>
+  </div>
+</article>
+
+
+  
+    <article class="post">
+  
+  <div class="post-content">
+    <header>
+      
+        <div class="icon"></div>
+        <time datetime="2013-07-04T09:40:29.000Z"><a href="/2013/07/04/puppet-agent证书签名流程/">Jul 4 2013</a></time>
+      
+      
+  
+    <h1 class="title"><a href="/2013/07/04/puppet-agent证书签名流程/">Puppet Agent证书签名流程</a></h1>
+  
+
+    </header>
+    <div class="entry">
+      
+        <p><a href="http://liucy.org/wp-content/uploads/2013/07/证书签名.png"><img src="http://liucy.org/wp-content/uploads/2013/07/证书签名.png" alt="证书签名"></a></p>
+
+      
+    </div>
+    <footer>
+      
+        
+        
+      
+      <div class="clearfix"></div>
+    </footer>
+  </div>
+</article>
+
+
+  
+    <article class="post">
+  
+  <div class="post-content">
+    <header>
+      
+        <div class="icon"></div>
+        <time datetime="2013-07-04T09:27:25.000Z"><a href="/2013/07/04/puppet-cs结构详细流程图/">Jul 4 2013</a></time>
+      
+      
+  
+    <h1 class="title"><a href="/2013/07/04/puppet-cs结构详细流程图/">Puppet CS结构详细流程图</a></h1>
+  
+
+    </header>
+    <div class="entry">
+      
+        <p>&nbsp;</p>
+<p>&nbsp;</p>
+<p>&nbsp;</p>
+<p>&nbsp;</p>
+<p>&nbsp;</p>
+<p><a href="http://liucy.org/wp-content/uploads/2013/07/Puppet-CS结构配置应用详细流程.png"><img src="http://liucy.org/wp-content/uploads/2013/07/Puppet-CS结构配置应用详细流程.png" alt="Puppet_cs"></a></p>
+<p>&nbsp;</p>
+<p>前段时间画的图，如果有错误，欢迎更正。</p>
+
+      
+    </div>
+    <footer>
+      
+        
+        
+      
+      <div class="clearfix"></div>
+    </footer>
+  </div>
+</article>
+
+
+  
+    <article class="post">
+  
+  <div class="post-content">
+    <header>
+      
+        <div class="icon"></div>
+        <time datetime="2013-07-03T14:07:36.000Z"><a href="/2013/07/03/puppet使用create_resources时忽略exec的command属性的解决办法/">Jul 3 2013</a></time>
+      
+      
+  
+    <h1 class="title"><a href="/2013/07/03/puppet使用create_resources时忽略exec的command属性的解决办法/">Puppet使用create_resources时忽略exec的command属性的解决办法</a></h1>
+  
+
+    </header>
+    <div class="entry">
+      
+        <p><span style="line-height: 1.714285714; font-size: 1rem;">今天遇到了一个奇怪的问题,应该是Puppet的一个Bug</span></p>
+<p>就是在使用create_resources函数的时候，类型是user啥的都OK。但是当我使用exec类型的时候它就忽略command参数了</p>
+<p>比如说我写</p>
+<p><pre class="brush:bash">puppet apply -e &quot;create_resources(exec,{‘ls’=&gt;{command=&gt;‘wkskd’,provider=&gt;shell,logoutput=&gt;true}})&quot;</pre><br>执行的时候不会显示报错，而是直接执行ls命令，不管我写的command</p>
+<p>我今天翻了半天,找了个临时的办法解决了这个问题</p>
+<p>我觉得exec资源出现这种问题的原因是它的title可以不是唯一的</p>
+<p>然后Puppet将ls‘=&gt;{command=&gt;’wkskd&#39;,provider=&gt;shell,logoutput=&gt;true}转化成资源时，会将哈希中的3个键值分别转化，</p>
+<p>然后在做健值赋值的时候，我抓 出来的结果是这样的</p>
+<p><pre class="brush:plain">provider =&gt; shell</p>
+<p>Exec[ls]{:provider=&gt;“shell”}</p>
+<p>command =&gt; wkskd</p>
+<p>Exec[ls]{:provider=&gt;“shell”,:command=&gt;“wkskd”}</p>
+<p>name =&gt; ls</p>
+<p>Exec[ls]{:provider=&gt;“shell”,:command=&gt;“ls”}</pre><br>也就是说，我前面已经指定了exec资源的command，但是在重新指定name时候，它却把command覆盖了</p>
+<p>我还没找到Exec怎么解决这个问题，所以就临时把这个循环的代码改了下</p>
+<p><pre class="brush:ruby">  # Create a Puppet::Resource instance from this parser resource.</p>
+<h1>We plan, at some point, on not needing to do this conversion, but</h1>
+<h1>it&#39;s sufficient for now.</h1>
+<p>  def to_resource<br>    result = Puppet::Resource.new(type, title)</p>
+<pre><code>to_hash<span class="variable">.each</span> <span class="keyword">do</span> |p, v|
+  <span class="keyword">if</span> v<span class="variable">.is_a</span>?(Puppet::Resource)
+    v = Puppet::Resource<span class="variable">.new</span>(v<span class="variable">.type</span>, v<span class="variable">.title</span>)
+  elsif v<span class="variable">.is_a</span>?(Array)
+    <span class="preprocessor"># flatten resource references arrays</span>
+    v = v<span class="variable">.flatten</span> <span class="keyword">if</span> v<span class="variable">.flatten</span><span class="variable">.find</span> { |av| av<span class="variable">.is_a</span>?(Puppet::Resource) }
+    v = v<span class="variable">.collect</span> <span class="keyword">do</span> |av|
+      av = Puppet::Resource<span class="variable">.new</span>(av<span class="variable">.type</span>, av<span class="variable">.title</span>) <span class="keyword">if</span> av<span class="variable">.is_a</span>?(Puppet::Resource)
+      av
+    <span class="keyword">end</span>
+  <span class="keyword">end</span>
+
+  <span class="preprocessor"># If the value is an array with only one value, then</span>
+  <span class="preprocessor"># convert it to a single value.  This is largely so that</span>
+  <span class="preprocessor"># the database interaction doesn't have to worry about</span>
+  <span class="preprocessor"># whether it returns an array or a string.</span>
+  result[p] = <span class="keyword">if</span> v<span class="variable">.is_a</span>?(Array) and v<span class="variable">.length</span> == <span class="number">1</span>
+                v[<span class="number">0</span>]
+              <span class="keyword">else</span>
+                v
+              <span class="keyword">end</span>
+<span class="keyword">end</span>
+
+result<span class="variable">.file</span> = <span class="keyword">self</span><span class="variable">.file</span>
+result<span class="variable">.line</span> = <span class="keyword">self</span><span class="variable">.line</span>
+result<span class="variable">.exported</span> = <span class="keyword">self</span><span class="variable">.exported</span>
+result<span class="variable">.virtual</span> = <span class="keyword">self</span><span class="variable">.virtual</span>
+result<span class="variable">.tag</span>(*<span class="keyword">self</span><span class="variable">.tags</span>)
+
+result</code></pre>
+<p>  end</pre><br>这是puppet/parser/resource.rb中转化成资源的那部分</p>
+<p>to_hash.each do |p, v|，这句话是将command=&gt;‘wkskd’,provider=&gt;shell,logoutput=&gt;true转化为Hash，然后循环</p>
+<p>我改成了to_hash.sort.reverse.map do |p,v|</p>
+<p>这样就把key的顺序改了，name在前，command在后，这样就不会有name覆盖command的情况了</p>
+<p>2013.6.25 22:40</p>
+<p>折腾了两天，终于把这个问题搞定了。</p>
+<p>昨天在上面的解决办法之后，我继续往下翻，发现不用上面的方法也可以解决。</p>
+<p>修改/usr/lib/ruby/site_ruby/1.8/puppet/resource.rb中的parameter_name函数，它的功能是在将将字符串形式的定义转化为资源时，查询类型的参数名。默认情况下，它会查看给定的参数是否与:name相同，如果是，返回的参数就是namevar，也就是说在转化Exec时，name =&gt; ‘ls’属性值对中的name进到这个函数时，会与:name相同，这时返回的param就会是exec的namevar，也就是command。</p>
+<p><pre class="brush:ruby">  # Produce a canonical method name.<br>  def parameter_name(param)<br>    param = param.to_s.downcase.to_sym<br>    if param == :name and n = namevar<br>      param = namevar<br>    end<br>    param<br>  end</pre><br>所以，我在这里加了一句，当资源类型是Exec且param为name时跳过namevar这个判断。</p>
+<p><pre class="brush:ruby">  # Produce a canonical method name.<br>  def parameter_name(param)<br>    param = param.to_s.downcase.to_sym<br>    if param == :name and n = namevar<br>      unless resource_type.to_s == ‘Puppet::Type::Exec’ and param.to_s == ‘name’<br>        param = namevar<br>      end<br>    end<br>    param<br>  end</pre><br><span style="line-height: 1.714285714; font-size: 1rem;">这样，再去执行puppet apply …就没问题了。</span></p>
+<p>所以昨天很Happy了一会儿。但也只是一会儿，等我再去用puppet agent -t执行的时候，它又不行了。还是原来的问题。经过了昨天晚上，今天一天和今天晚上的折腾，翻Puppet源码，加Debug，终于让我找到原因了。</p>
+<p>经过上面的修改后，Puppet Master在编译Catalog就不会出错了，但是Agent接收Catalog之后又会经历一次资源的转化。而且这个过程是只有使用create_resource函数创建的资源才会有，正常定义的资源是没问题的。</p>
+<p>解决办法是修改/usr/lib/ruby/site_ruby/1.8/puppet/resource/catalog.rb中的self.from_pson函数，下面这段是指将create_resource中第二个参数转化为资源</p>
+<p><pre class="brush:ruby">    if resources = data[‘resources’]<br>      resources = PSON.parse(resources) if resources.is_a?(String)<br>      resources.each do |res|<br>        resource_from_pson(result, res)<br>      end<br>    end</pre><br>而这里res的值就会是</p>
+<p><pre class="brush:plain">{“tags”=&gt;[“exec”, “ls”, “node”, “default”, “class”], “parameters”=&gt;{“name”=&gt;“ls”, “provider”=&gt;“shell”, “logoutput”=&gt;true, “command”=&gt;“/bin/ls -l”}, “type”=&gt;“Exec”, “exported”=&gt;false, “title”=&gt;“ls”}</pre><br>实际上，这个问题只在CentOS上出现，我的MBP上跑的正常，然后我也把这里的res打出来的时候发现它里面没有“name”=&gt;“ls”这个值对，所以我就直接把它删去了。形成下面的样子。</p>
+<p><pre class="brush:ruby">    if resources = data[‘resources’]<br>      resources = PSON.parse(resources) if resources.is<em>a?(String)<br>      resources.each do |res|<br>        res[“parameters”].delete(“name”) if res[“type”] == ‘Exec’<br>        resource_from_pson(result, res)<br>      end<br>    end</pre><br><span style="line-height: 1.714285714; font-size: 1rem;">然后再执行puppet agent -t的时候，就显示正常了。^</em>^</span></p>
+<p><span style="color: #ff0000;">最后，记得重启Puppet Master，否则属于Master那边的代码不生效。</span></p>
+
+      
+    </div>
+    <footer>
+      
+        
+        
+      
+      <div class="clearfix"></div>
+    </footer>
+  </div>
+</article>
+
+
+  
+    <article class="post">
+  
+  <div class="post-content">
+    <header>
+      
+        <div class="icon"></div>
+        <time datetime="2013-07-03T01:09:34.000Z"><a href="/2013/07/03/备案完成/">Jul 3 2013</a></time>
+      
+      
+  
+    <h1 class="title"><a href="/2013/07/03/备案完成/">备案完成</a></h1>
+  
+
+    </header>
+    <div class="entry">
+      
+        <p>折腾了一个月，终于把备案做完了。</p>
+<p>接下来的一段时间，我准备把前段时间写的PPT和一些文章的内容整理一下，放到这上面来。</p>
+<p>不过，最近有些事情比较忙，可能会稍晚点再做。</p>
 
       
     </div>
@@ -82,6 +652,8 @@
   <nav id="pagination">
   
   
+    <a href="/archives/2013/page/2/" class="alignright next">Next</a>
+  
   <div class="clearfix"></div>
 </nav>
 </div></div>
@@ -94,6 +666,15 @@
 </div>
 
   
+<div class="widget tag">
+  <h3 class="title">Categories</h3>
+  <ul class="entry">
+  
+    <li><a href="/categories/未分类/">未分类</a><small>12</small></li>
+  
+  </ul>
+</div>
+
 
   
 </aside>

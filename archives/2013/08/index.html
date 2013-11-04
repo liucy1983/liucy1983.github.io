@@ -1,0 +1,178 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+  <meta charset="utf-8">
+  
+  <title>Archives: 2013/8 | Puppet技术站</title>
+  <meta name="author" content="Liu.cy">
+  
+  
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+
+  
+  <meta property="og:site_name" content="Puppet技术站"/>
+
+  
+    <meta property="og:image" content="undefined"/>
+  
+
+  <link href="/favicon.png" rel="icon">
+  <link rel="alternate" href="/atom.xml" title="Puppet技术站" type="application/atom+xml">
+  <link rel="stylesheet" href="/css/style.css" media="screen" type="text/css">
+  <!--[if lt IE 9]><script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script><![endif]-->
+  
+</head>
+
+
+<body>
+  <header id="header" class="inner"><div class="alignleft">
+  <h1><a href="/">Puppet技术站</a></h1>
+  <h2><a href="/"></a></h2>
+</div>
+<nav id="main-nav" class="alignright">
+  <ul>
+    
+      <li><a href="/">Home</a></li>
+    
+      <li><a href="/archives">Archives</a></li>
+    
+  </ul>
+  <div class="clearfix"></div>
+</nav>
+<div class="clearfix"></div></header>
+  <div id="content" class="inner">
+    <div id="main-col" class="alignleft"><div id="wrapper">
+<h2 class="archive-title">2013/8</h2>
+
+
+  
+    <article class="post">
+  
+  <div class="post-content">
+    <header>
+      
+        <div class="icon"></div>
+        <time datetime="2013-08-19T09:48:29.000Z"><a href="/2013/08/19/让puppet-apply程序发送报告到master/">Aug 19 2013</a></time>
+      
+      
+  
+    <h1 class="title"><a href="/2013/08/19/让puppet-apply程序发送报告到master/">让puppet apply程序发送报告到master</a></h1>
+  
+
+    </header>
+    <div class="entry">
+      
+        <p>这是一个比较奇怪的需求，我这里想使用puppet apply -e ‘’的方式直接执行一些命令，而不用去Master取任务，这样可以减少操作环节，降低出错几率。</p>
+<p>然后呢，却又想把报告发送到Master（或是其它报告分析程序），使执行结果统一化。</p>
+<p>puppet apply命令默认会把报告存在本地，而不通过rest接口发送到Master，所以我需要做些配置来修改。</p>
+<p>当然，在puppet.conf和<a href="http://docs.puppetlabs.com/references/latest/configuration.html里面我是翻了半天也没找到配置项，又翻了一圈源码之后，发现这东西与indirection/terminus相关，然后又看到了这个页面http://docs.puppetlabs.com/guides/configuring.html才找到了最终的解决办法。" target="_blank">http://docs.puppetlabs.com/references/latest/configuration.html里面我是翻了半天也没找到配置项，又翻了一圈源码之后，发现这东西与indirection/terminus相关，然后又看到了这个页面http://docs.puppetlabs.com/guides/configuring.html才找到了最终的解决办法。</a></p>
+<p>添加/etc/puppet/routes.yaml，内容为</p>
+<p><pre class="brush:plain">—-<br>  apply:<br>    report:<br>      terminus: rest</pre><br>搞定。</p>
+
+      
+    </div>
+    <footer>
+      
+        
+        
+      
+      <div class="clearfix"></div>
+    </footer>
+  </div>
+</article>
+
+
+  
+    <article class="post">
+  
+  <div class="post-content">
+    <header>
+      
+        <div class="icon"></div>
+        <time datetime="2013-08-05T16:49:47.000Z"><a href="/2013/08/06/独立puppet-fileserver时遇到的一个问题/">Aug 6 2013</a></time>
+      
+      
+  
+    <h1 class="title"><a href="/2013/08/06/独立puppet-fileserver时遇到的一个问题/">独立Puppet Fileserver时遇到的一个问题</a></h1>
+  
+
+    </header>
+    <div class="entry">
+      
+        <p>今天搭Puppet环境时遇到了一个问题。</p>
+<p>我是准备把Puppet的Fileserver单独拿出来，为了以后压力大时做多机用。</p>
+<p>结构是，Puppet Master中使用Nginx+Passenger，完成Master和CA的功能，同时Nginx做为代理卸载ssl后将/production/file_(metadata|content)/test/的请求转发至fileserver。</p>
+<p>Fileserver的Puppet也是使用Nginx+Passenger，设置ca=false，并配置Nginx不启用ssl。配置fileserver.conf增加一个挂载点。</p>
+<p><pre class="brush:plain">[test]<br>  path /data/test<br>  allow puppet.liucy.org</pre><br>但是这样配置完成后，fileserver的功能一直报错，使用curl测试</p>
+<p><pre class="brush:bash">curl -k -H “Accept: yaml” <a href="http://fs.liucy.org:8140/production/file_metadata/test" target="_blank">http://fs.liucy.org:8140/production/file_metadata/test</a></pre><br>返回的消息是</p>
+<p><pre class="brush:plain">Forbidden request: fs.liucy.org(172.16.164.138) access to /file_metadata/shells/common [find] at :117</pre><br>然后，我晚上花了4个钟头，来翻Puppet的源码，找了N多个文件，输出了一堆变量之后找到了问题点，然后还以为是Bug。结果再一追踪，我擦，原来直接加一句auth no就搞定了。</p>
+<p><pre class="brush:plain">[test]<br>  path /data/test<br>  auth no<br>  allow puppet.liucy.org</pre><br>这句话的意思就是说如果它为true/yes，就要访问本服务是https，经过了SSL加密，要不然怎么配置都不会让访问的。改成no/false的话就允许在Puppet/Nginx直接提供HTTP没有SSL的情况下访问自己。</p>
+<p>在此记录一下，纪念自己的悲催行为。。。</p>
+
+      
+    </div>
+    <footer>
+      
+        
+        
+      
+      <div class="clearfix"></div>
+    </footer>
+  </div>
+</article>
+
+
+  
+
+  <nav id="pagination">
+  
+  
+  <div class="clearfix"></div>
+</nav>
+</div></div>
+    <aside id="sidebar" class="alignright">
+  <div class="search">
+  <form action="//google.com/search" method="get" accept-charset="utf-8">
+    <input type="search" name="q" results="0" placeholder="Search">
+    <input type="hidden" name="q" value="site:liucy.org">
+  </form>
+</div>
+
+  
+<div class="widget tag">
+  <h3 class="title">Categories</h3>
+  <ul class="entry">
+  
+    <li><a href="/categories/未分类/">未分类</a><small>12</small></li>
+  
+  </ul>
+</div>
+
+
+  
+</aside>
+    <div class="clearfix"></div>
+  </div>
+  <footer id="footer" class="inner"><div class="alignleft">
+  
+  &copy; 2013 Liu.cy
+  
+</div>
+<div class="clearfix"></div></footer>
+  <script src="//ajax.googleapis.com/ajax/libs/jquery/2.0.3/jquery.min.js"></script>
+<script src="/js/jquery.imagesloaded.min.js"></script>
+<script src="/js/gallery.js"></script>
+
+
+
+
+<link rel="stylesheet" href="/fancybox/jquery.fancybox.css" media="screen" type="text/css">
+<script src="/fancybox/jquery.fancybox.pack.js"></script>
+<script type="text/javascript">
+(function($){
+  $('.fancybox').fancybox();
+})(jQuery);
+</script>
+
+</body>
+</html>

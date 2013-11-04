@@ -3,15 +3,17 @@
 <head>
   <meta charset="utf-8">
   
-  <title>Hello World | Puppet技术站</title>
+  <title>独立Puppet Fileserver时遇到的一个问题 | Puppet技术站</title>
   <meta name="author" content="Liu.cy">
   
-  <meta name="description" content="Welcome to Hexo! This is your very first post. Check documentation to learn how to use.">
+  <meta name="description" content="今天搭Puppet环境时遇到了一个问题。
+我是准备把Puppet的Fileserver单独拿出来，为了以后压力大时做多机用。
+结构是，Puppet Master中使用Nginx+Passenger，完成Master和CA的功能，同时Nginx做为代理卸载ssl后将/production/file_(">
   
   
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 
-  <meta property="og:title" content="Hello World"/>
+  <meta property="og:title" content="独立Puppet Fileserver时遇到的一个问题"/>
   <meta property="og:site_name" content="Puppet技术站"/>
 
   
@@ -49,23 +51,36 @@
     <header>
       
         <div class="icon"></div>
-        <time datetime="2013-11-04T17:03:47.000Z"><a href="/2013/11/05/hello-world/">Nov 5 2013</a></time>
+        <time datetime="2013-08-05T16:49:47.000Z"><a href="/2013/08/06/独立puppet-fileserver时遇到的一个问题/">Aug 6 2013</a></time>
       
       
   
-    <h1 class="title">Hello World</h1>
+    <h1 class="title">独立Puppet Fileserver时遇到的一个问题</h1>
   
 
     </header>
     <div class="entry">
       
-        <p>Welcome to <a href="http://zespia.tw/hexo" target="_blank">Hexo</a>! This is your very first post. Check <a href="http://zespia.tw/hexo/docs" target="_blank">documentation</a> to learn how to use.</p>
+        <p>今天搭Puppet环境时遇到了一个问题。</p>
+<p>我是准备把Puppet的Fileserver单独拿出来，为了以后压力大时做多机用。</p>
+<p>结构是，Puppet Master中使用Nginx+Passenger，完成Master和CA的功能，同时Nginx做为代理卸载ssl后将/production/file_(metadata|content)/test/的请求转发至fileserver。</p>
+<p>Fileserver的Puppet也是使用Nginx+Passenger，设置ca=false，并配置Nginx不启用ssl。配置fileserver.conf增加一个挂载点。</p>
+<p><pre class="brush:plain">[test]<br>  path /data/test<br>  allow puppet.liucy.org</pre><br>但是这样配置完成后，fileserver的功能一直报错，使用curl测试</p>
+<p><pre class="brush:bash">curl -k -H “Accept: yaml” <a href="http://fs.liucy.org:8140/production/file_metadata/test" target="_blank">http://fs.liucy.org:8140/production/file_metadata/test</a></pre><br>返回的消息是</p>
+<p><pre class="brush:plain">Forbidden request: fs.liucy.org(172.16.164.138) access to /file_metadata/shells/common [find] at :117</pre><br>然后，我晚上花了4个钟头，来翻Puppet的源码，找了N多个文件，输出了一堆变量之后找到了问题点，然后还以为是Bug。结果再一追踪，我擦，原来直接加一句auth no就搞定了。</p>
+<p><pre class="brush:plain">[test]<br>  path /data/test<br>  auth no<br>  allow puppet.liucy.org</pre><br>这句话的意思就是说如果它为true/yes，就要访问本服务是https，经过了SSL加密，要不然怎么配置都不会让访问的。改成no/false的话就允许在Puppet/Nginx直接提供HTTP没有SSL的情况下访问自己。</p>
+<p>在此记录一下，纪念自己的悲催行为。。。</p>
 
       
     </div>
     <footer>
       
         
+  
+  <div class="categories">
+    <a href="/categories/未分类/">未分类</a>
+  </div>
+
         
         
   <div class="addthis addthis_toolbox addthis_default_style">
@@ -107,7 +122,7 @@
   }(document, 'script', 'facebook-jssdk'));
 </script>
 
-<div class="fb-comments" data-href="http://liucy.org/2013/11/05/hello-world/" data-num-posts="5" data-width="840" data-colorscheme="light"></div>
+<div class="fb-comments" data-href="http://liucy.org/2013/08/06/独立puppet-fileserver时遇到的一个问题/" data-num-posts="5" data-width="840" data-colorscheme="light"></div>
       
   
 </section>
@@ -121,6 +136,15 @@
 </div>
 
   
+<div class="widget tag">
+  <h3 class="title">Categories</h3>
+  <ul class="entry">
+  
+    <li><a href="/categories/未分类/">未分类</a><small>12</small></li>
+  
+  </ul>
+</div>
+
 
   
 </aside>

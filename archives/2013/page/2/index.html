@@ -1,0 +1,174 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+  <meta charset="utf-8">
+  
+  <title>Page 2 | Archives: 2013 | Puppet技术站</title>
+  <meta name="author" content="Liu.cy">
+  
+  
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+
+  
+  <meta property="og:site_name" content="Puppet技术站"/>
+
+  
+    <meta property="og:image" content="undefined"/>
+  
+
+  <link href="/favicon.png" rel="icon">
+  <link rel="alternate" href="/atom.xml" title="Puppet技术站" type="application/atom+xml">
+  <link rel="stylesheet" href="/css/style.css" media="screen" type="text/css">
+  <!--[if lt IE 9]><script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script><![endif]-->
+  
+</head>
+
+
+<body>
+  <header id="header" class="inner"><div class="alignleft">
+  <h1><a href="/">Puppet技术站</a></h1>
+  <h2><a href="/"></a></h2>
+</div>
+<nav id="main-nav" class="alignright">
+  <ul>
+    
+      <li><a href="/">Home</a></li>
+    
+      <li><a href="/archives">Archives</a></li>
+    
+  </ul>
+  <div class="clearfix"></div>
+</nav>
+<div class="clearfix"></div></header>
+  <div id="content" class="inner">
+    <div id="main-col" class="alignleft"><div id="wrapper">
+<h2 class="archive-title">2013</h2>
+
+
+  
+    <article class="post">
+  
+  <div class="post-content">
+    <header>
+      
+        <div class="icon"></div>
+        <time datetime="2013-06-05T09:27:26.000Z"><a href="/2013/06/05/简要安装nginxpassenger替代puppet的webrick/">Jun 5 2013</a></time>
+      
+      
+  
+    <h1 class="title"><a href="/2013/06/05/简要安装nginxpassenger替代puppet的webrick/">简要安装Nginx+Passenger替代Puppet的Webrick</a></h1>
+  
+
+    </header>
+    <div class="entry">
+      
+        <p>上篇文章中我们说了如何安装Puppet和Dashboard，然后，讲了在CentOS和Ubuntu上的操作。 然后，我发现，我还是不太适合说Ubuntu的内容，因为我不熟悉它。。。因为我从开始用Linux就是Redhat系列的。</p>
+<p>操作系统是 CentOS 6，安装完成后会使用Nginx替代Puppet和Dashboard本身内置的Webrick。</p>
+<div><br><br><em>   #### 添加Passenger YUM源
+
+</em>   #### 安装Nginx+Passenger<br><br><em>   配置Nginx<br>创建目录结构<br><pre class="brush:bash">mkdir -p /etc/puppet/rack/public<br>cp /usr/share/puppet/ext/rack/files/config.ru /etc/puppet/rack/<br>chown -R puppet:puppet /etc/puppet/rack/</pre><br>启动一次Puppet Server以生成密钥<br><pre class="brush:bash">service puppetmaster start<br>service puppetmaster stop</pre><br>添加如下内容至/etc/nginx/conf.d/passenger.conf<br><pre>passenger_use_global_queue on;<br>passenger_max_pool_size 15;<br>passenger_pool_idle_time 300;</pre><br>创建/etc/nginx/conf.d/puppetmaster.conf，内容如下，将puppet.example.com替换为你的主机名。如果启动Nginx报错查不到pem文件，可以查看/var/lib/puppet/ssl/certs，确认文件名。<br><pre>server {<br>    listen                8140 ssl;<br>    server_name            puppet puppet.example.com;<br><br>    passenger_enabled        on;<br>    passenger_set_cgi_param        HTTP_X_CLIENT_DN $ssl_client_s_dn;<br>    passenger_set_cgi_param        HTTP_X_CLIENT_VERIFY $ssl_client_verify;<br><br>    access_log            /var/log/nginx/puppet_access.log;<br>    error_log            /var/log/nginx/puppet_error.log;<br><br>    root                /etc/puppet/rack/public;<br><br>    ssl_certificate            /var/lib/puppet/ssl/certs/puppet.example.com.pem;<br>    ssl_certificate_key        /var/lib/puppet/ssl/private_keys/puppet.example.com.pem;<br>    ssl_crl                /var/lib/puppet/ssl/ca/ca_crl.pem;<br>    ssl_client_certificate        /var/lib/puppet/ssl/certs/ca.pem;<br>    ssl_ciphers            SSLv2:-LOW:-EXPORT:RC4+RSA;<br>    ssl_prefer_server_ciphers    on;<br>    ssl_verify_client        optional;<br>    ssl_verify_depth        1;<br>    ssl_session_cache        shared:SSL:128m;<br>    ssl_session_timeout        5m;<br>}</pre><br>创建/etc/nginx/conf.d/puppetdashboard.conf，内容如下<br><pre>server{<br>    listen            3000;<br>    server_name        puppet;<br><br>    passenger_enabled    on;<br><br>    access_log        /var/log/nginx/puppetdashboard_access.log;<br>    error_log        /var/log/nginx/puppetdashboard_error.log;<br><br>    root            /usr/share/puppet-dashboard/public;<br>}</pre><br>安装完成后，确保puppetmaster和puppet-dashboard服务不启动，puppet-dashboard-workers服务启动。
+
+</em>   验证安装成功<br>启动Nginx<br><pre class="brush:bash">service nginx start<br>chkconfig nginx on</pre><br>查看端口是否在被Nginx监听<br><pre class="brush:bash">lsof -i:8140<br>lsof -i:3000</pre><br>执行puppet agent命令<br><pre class="brush:bash">puppet agent -t —server &lt;你的主机名&gt;</pre><br>访问Dashboard页面<br><pre><a href="http://你的主机名:3000" target="_blank">http://你的主机名:3000</a></pre><br></div>
+      
+    </div>
+    <footer>
+      
+        
+        
+      
+      <div class="clearfix"></div>
+    </footer>
+  </div>
+</article>
+
+
+  
+    <article class="post">
+  
+  <div class="post-content">
+    <header>
+      
+        <div class="icon"></div>
+        <time datetime="2013-06-05T01:18:08.000Z"><a href="/2013/06/05/hello-world/">Jun 5 2013</a></time>
+      
+      
+  
+    <h1 class="title"><a href="/2013/06/05/hello-world/">Puppet简要安装</a></h1>
+  
+
+    </header>
+    <div class="entry">
+      
+        <p>Puppet的安装说简单，会非常的简单。但说复杂，会折腾死人。</p>
+<div><br><br>所以，我的建议是，把环境弄简单，使用最简单的方式安装上就好。如果你想学习编译过程，或者觉得手动编译很酷，那么，遇到问题时就请很酷的自己解决吧，去Google，看官方文档，自己把问题解决掉，那很酷。<br><br>首先说最简单的，在CentOS 6中安装，就3步<br><br>#### 1. 安装YUM源<br><br><pre>rpm -ivh <a href="http://mirrors.sohu.com/fedora-epel/6/x86_64/epel-release-6-8.noarch.rpm" target="_blank">http://mirrors.sohu.com/fedora-epel/6/x86_64/epel-release-6-8.noarch.rpm</a><br>rpm -ivh <a href="http://yum.puppetlabs.com/el/6/products/x86_64/puppetlabs-release-6-6.noarch.rpm" target="_blank">http://yum.puppetlabs.com/el/6/products/x86_64/puppetlabs-release-6-6.noarch.rpm</a></pre><br><br>#### 2. 安装Puppet<br><br><pre>yum install puppet<br>yum install pupet-server</pre><br><br>#### 3. 启动puppet<br><br><pre>service puppet start<br>service puppetmater start</pre><br>然后说文字多一些的， CentOS 和Ubuntu 两种系统（x86_64），分4部分讨论：<br><br>1.  环境准备<br>2.  添加源<br>3.  安装Puppet和Puppet Server<br>4.  启动Puppet服务<br>安装完成后会继续讨论如何安装Dashboard<br><br>1.  安装Dashboard<br>2.  安装MySQL Server<br>3.  创建MySQL库和用户<br>4.  修改配置文件<br>5.  初始化数据库<br>6.  配置Puppet Agent发送报告<br>7.  配置Puppet Master将报告转发至Dashboard<br>8.  启动Dashboard和Worker服务<br><br># 安装Puppet<br><br>#### 1. 环境准备<br><br><em>   确定自己的操作系统版本，这里讨论的是CentOS 和Ubuntu
+</em>   确定需要部署的Puppet架构，这里讨论的是C/S结构。<br><em>   确定防火墙策略，允许Agent访问Master的8140端口
+</em>   规范好主机名，不要重名，易于定位<br><em>   确定已有内部DNS或HOSTS，使Agent可以通过主机名访问到Master，且Master可以解析到每个Agent的主机名<br><br>#### 2. 添加源<br><br>##### CentOS 5.x<br><br>确保已有基础源，如果没有执行下面的命令：<br><pre>wget <a href="http://mirrors.163.com/.help/CentOS5-Base-163.repo" target="_blank">http://mirrors.163.com/.help/CentOS5-Base-163.repo</a> -O /etc/yum.repos.d/</pre><br>安装EPEL源：<br><pre>rpm -ivh <a href="http://mirrors.sohu.com/fedora-epel/5/x86_64/epel-release-5-4.noarch.rpm" target="_blank">http://mirrors.sohu.com/fedora-epel/5/x86_64/epel-release-5-4.noarch.rpm</a></pre><br>安装Puppetlabs官方源：<br><pre>rpm -ivh <a href="http://yum.puppetlabs.com/el/5/products/x86_64/puppetlabs-release-5-6.noarch.rpm" target="_blank">http://yum.puppetlabs.com/el/5/products/x86_64/puppetlabs-release-5-6.noarch.rpm</a></pre><br><br>##### Centos 6.x<br><br>确保已有基础源，如果没有执行下面的命令：<br><pre>wget <a href="http://mirrors.163.com/.help/CentOS6-Base-163.repo" target="_blank">http://mirrors.163.com/.help/CentOS6-Base-163.repo</a> -O /etc/yum.repos.d/</pre><br>安装EPEL源：<br><pre>rpm -ivh <a href="http://mirrors.sohu.com/fedora-epel/6/x86_64/epel-release-6-8.noarch.rpm" target="_blank">http://mirrors.sohu.com/fedora-epel/6/x86_64/epel-release-6-8.noarch.rpm</a></pre><br>安装Puppetlabs官方源：<br><pre>rpm -ivh <a href="http://yum.puppetlabs.com/el/6/products/x86_64/puppetlabs-release-6-6.noarch.rpm" target="_blank">http://yum.puppetlabs.com/el/6/products/x86_64/puppetlabs-release-6-6.noarch.rpm</a></pre><br><br>##### Ubuntu<br><br>首先查看下面Ubuntu各版本的代号<br><pre>Debian 6 “Squeeze” (current stable release) (also supported by Puppet Enterprise)<br>Debian “Wheezy” (current testing distribution)<br>Debian “Sid” (current unstable distribution)<br>Ubuntu 12.04 LTS “Precise Pangolin” (also supported by Puppet Enterprise)<br>Ubuntu 10.04 LTS “Lucid Lynx” (also supported by Puppet Enterprise)<br>Ubuntu 8.04 LTS “Hardy Heron”<br>Ubuntu 12.10 “Quantal Quetzal”<br>Ubuntu 11.10 “Oneiric Ocelot”</pre><br>访问<a href="http://apt.puppetlabs.com，找到自己系统对应的包，安装Puppetlabs官方源" target="_blank">http://apt.puppetlabs.com，找到自己系统对应的包，安装Puppetlabs官方源</a><br><pre>wget <a href="http://apt.puppetlabs.com/puppetlabs-release-precise.deb" target="_blank">http://apt.puppetlabs.com/puppetlabs-release-precise.deb</a><br>sudo dpkg -i puppetlabs-release-quantai.deb<br>sudo apt-get update</pre><br><br>####  3. 安装Puppet<br><br>##### CentOS<br><br>安装Puppet客户端：<br><pre>yum install puppet</pre><br>安装Puppet服务器端：<br><pre>yum install puppet-server</pre><br><br>##### Ubuntu<br><br>安装Puppet客户端：<br><pre>sudo apt-get install puppet</pre><br>安装Puppet服务器端：<br><pre>sudo apt-get install puppet-server</pre><br>&nbsp;<br><br>#### 4. 启动Puppet服务<br><br>启动Puppet Agent服务<br><pre>sudo service puppet start</pre><br>启动Puppet Master服务<br><pre>sudo service puppetmaster start</pre><br><br>#<br><br>&nbsp;<br><br># 安装Dashboard<br><br>####  1. 安装Dashboard<br><br>因为前面我们已经配置好源，所以在这里直接安装就好<br><br>CentOS:<br><pre>yum install puppet-dashboard</pre><br>Ubuntu:<br><pre>sudo apt-get install puppet-dashboard</pre><br>安装完成后，需要有两步操作，以防止后面的命令报错。<br><br>1. Dashboard新版本中安装的Gem包需要先释放，不然会报错<br><pre>cd /usr/share/puppet-dashboard<br>rake gems:refresh_specs</pre><br>2. 创建Worker日志文件并赋予正确的权限<br><pre>cd /usr/share/puppet-dashboard<br>touch log/production.log<br>chmod 0666 log/production.log</pre><br><br>#### 2. 安装MySQL Server<br><br>Puppet Agent执行结果的报告会首先发送回Master，然后Master会在配置后发送报告到Dashboard，这时Dashboard会将报告的内容存储到MySQL中，如果你已经有MySQL Server，跳过此步。<br><br>##### CentOS：<br><br><pre>yum install mysql-server<br><br>service mysqld start<br><br>mysqladmin -uroot password &lt;password&gt;;</pre><br><br>##### Ubuntu：<br><br><pre>sudo apt-get install mysql-server<br>sudo service mysql start</pre><br><br>#### 3. 创建MySQL库和用户<br><br>此步会创建Dashboard使用的数据库，并创建Dashboard使用的用户名，不可让Dashboard使用root用户。<br><pre>mysql -uroot -p<br><br>CREATE DATABASE dashboard_production CHARACTER SET utf8;<br>CREATE USER dashboard@localhost identified by &#39;my_passwd&#39;;<br>GRANT ALL PRIVILEGES ON dashboard_production.</em> to dashboard@localhost;<br>FLUSH PRIVILEGES;</pre><br>注：如果你的MySQL Server与Dashboard不在同一主机，请将localhost换成你的Dashboard所在主机IP。<br><br>#### 4. 修改配置文件<br><br>Dashboard安装完成后，软件的基本目录是/usr/share/puppet-dashboard，它有两个配置文件<br><br>主配置文件：          config/settings.yml<br><br>需要添加下面的内容至此文件，用于修改时区，否则默认的时区会是UTC，与我们的时区相差8小时。<br><pre>time_zone: ‘Beijing’</pre><br>配置库配置文件： config/database.yml<br><br>database.yml未被注释掉的内容如下：<br><pre>production:<br>  database: dashboard_production<br>  username: dashboard<br>  password:<br>  encoding: utf8<br>  adapter: mysql<br><br>development:<br>  database: dashboard_development<br>  username: dashboard<br>  password:<br>  encoding: utf8<br>  adapter: mysql<br><br>test:<br>  database: dashboard_test<br>  username: dashboard<br>  password:<br>  encoding: utf8<br>  adapter: mysql</pre><br>我们需要修改的是production段，其实不用动。<br><pre>database: dashboard_production  这个与我们刚才创建的数据库名相同，不需要修改<br>username: dashboard             这个也与我们刚才创建的用户名相同，不需要修改<br>password:                       这里需要添上刚才我们为dashboard用户设置的密码</pre><br>保存，退出<br><br>#### 5. 初始化数据库<br><br><pre>cd /usr/share/puppet-dashboard<br>rake RAILS_ENV=prodcution db:migrate</pre><br><br>#### 6. 配置Puppet Agent发送报告<br><br>上面说过，报告是由Agent执行后生成，经过Master转发到的Dashboard。所以Agent和Master都需要修改配置。<br><br>修改/etc/puppet/puppet.conf，在agent节中添加<br><pre>[agent]<br>    report = true</pre><br><br>#### 7.  配置Puppet Master将报告转发至Dashboard<br><br>修改/etc/puppet/puppet.conf，在master节中添加<br><pre>[master]<br>    reports = store, http<br>    reporturl = <a href="http://dashboard.example.com:3000/reports/upload" target="_blank">http://dashboard.example.com:3000/reports/upload</a></pre><br>这里写的主机名是dashboard.example.com，按实例情况修改，如果Dashbaord与Master在同一主机中可写成localhost。<br><br>#### 8.  启动Dashboard和Worker服务<br><br>Dashboard本身分为两部分，一个是Web Server，提供Master上传报告的接口和做为用户浏览报告的服务器，另外一个组件是Worker服务，它将上传上来的文件插入到MySQL数据库，所以要将这两个服务都启动才可以正常的看到报告。<br><pre>servoce puppet-dashboard start<br>service puppet-dashboard-worker start</pre><br>此时，Dashboard就已经安装完成，重启Puppet Master和Agent服务以启用刚才添加的配置，报告就会源源不断的添加进来了。<br><br>查看报告的地址是：<br><br><a href="http://your_dashbaord_host:3000" target="_blank">http://your_dashbaord_host:3000</a><br><br></div>
+      
+    </div>
+    <footer>
+      
+        
+        
+      
+      <div class="clearfix"></div>
+    </footer>
+  </div>
+</article>
+
+
+  
+
+  <nav id="pagination">
+  
+    <a href="/archives/2013/" class="alignleft prev">Prev</a>
+  
+  
+  <div class="clearfix"></div>
+</nav>
+</div></div>
+    <aside id="sidebar" class="alignright">
+  <div class="search">
+  <form action="//google.com/search" method="get" accept-charset="utf-8">
+    <input type="search" name="q" results="0" placeholder="Search">
+    <input type="hidden" name="q" value="site:liucy.org">
+  </form>
+</div>
+
+  
+<div class="widget tag">
+  <h3 class="title">Categories</h3>
+  <ul class="entry">
+  
+    <li><a href="/categories/未分类/">未分类</a><small>12</small></li>
+  
+  </ul>
+</div>
+
+
+  
+</aside>
+    <div class="clearfix"></div>
+  </div>
+  <footer id="footer" class="inner"><div class="alignleft">
+  
+  &copy; 2013 Liu.cy
+  
+</div>
+<div class="clearfix"></div></footer>
+  <script src="//ajax.googleapis.com/ajax/libs/jquery/2.0.3/jquery.min.js"></script>
+<script src="/js/jquery.imagesloaded.min.js"></script>
+<script src="/js/gallery.js"></script>
+
+
+
+
+<link rel="stylesheet" href="/fancybox/jquery.fancybox.css" media="screen" type="text/css">
+<script src="/fancybox/jquery.fancybox.pack.js"></script>
+<script type="text/javascript">
+(function($){
+  $('.fancybox').fancybox();
+})(jQuery);
+</script>
+
+</body>
+</html>
