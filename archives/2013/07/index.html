@@ -63,7 +63,7 @@
     <div class="entry">
       
         <p>这段时间正在研究MColletive的结构。应 <a href="http://weibo.com/opendoc" title="@守住每一天" target="_blank">@守住每一天</a> 的要求，写个简单的安装过程文档。</p>
-<p>首先要了解下MCollective的拓扑结构。<br><a href="http://liucy.org/wp-content/uploads/2013/07/mc.gif"><img src="http://liucy.org/wp-content/uploads/2013/07/mc.gif" alt="mc"></a><br>如上图所示，在MCollective环境中，有3个角色，分别是：</p>
+<p>首先要了解下MCollective的拓扑结构。<br><a href="http://liucy.org/wp-content/uploads/2013/07/mc.gif" target="_blank"><img src="http://liucy.org/wp-content/uploads/2013/07/mc.gif" alt="mc"></a><br>如上图所示，在MCollective环境中，有3个角色，分别是：</p>
 <ul>
 <li><span style="line-height: 1.714285714; font-size: 1rem;">Servers：服务器端，可以通过MCollective控制的机器，一般来说是我们的测试或是线上环境跑的服务器。</span></li>
 <li><span style="line-height: 1.714285714; font-size: 1rem;">Client： 客户端，用来发送命令到需要的服务器中执行。实际上可以认为它是控制端，我们可以安装在Puppet Master中，或是自己电脑上用来控制你的服务器干活儿。</span></li>
@@ -73,7 +73,7 @@
 </em>   我们这次安装过程中，ActiveMQ会使用Puppet现有的CA拷贝来验证证书的有效性，而servers/clients会使用Puppet环境中已经使用现有CA颁发的证书来通讯。server/clients与ActiveMQ的通讯由Connector Plugin完成。</p>
 <p>2. 应用层<em>   通过security plugin完成，每个client用户拥有唯一的key，所有服务器共享同一个key。每个服务器节点保存所有授权过的client public key。
 </em>   一个服务器在接受到请求时，如果请求的key不在自己保存的授权过的列表中的时候，它会拒绝掉这个请求。<br><em>   如果后面你使用ActionPolicy Plugin，它可以提供更细粒度的客户端控制。
-</em>   所以这个的功能是用于控制那个客户端可以管理那些服务器。<br><a href="http://liucy.org/wp-content/uploads/2013/07/Untitled.jpg"><img src="http://liucy.org/wp-content/uploads/2013/07/Untitled.jpg" alt="MCollective_Authorization"></a></p>
+</em>   所以这个的功能是用于控制那个客户端可以管理那些服务器。<br><a href="http://liucy.org/wp-content/uploads/2013/07/Untitled.jpg" target="_blank"><img src="http://liucy.org/wp-content/uploads/2013/07/Untitled.jpg" alt="MCollective_Authorization"></a></p>
 <p>介绍大概就是这个样子。下面说安装过程。</p>
 <p><span style="line-height: 1.714285714; font-size: 1rem;">1. 凭证准备</span></p>
 <p><span style="line-height: 24px;">传输层(ActiveMQ):</span></p>
@@ -227,7 +227,7 @@ sudo keytool -importkeystore  -destkeystore keystore.jks -srckeystore activemq.p
     </header>
     <div class="entry">
       
-        <p>[gview file=&quot;<a href="http://liucy.org/wp-content/uploads/2013/07/Puppet使用详解-入门.pptx">http://liucy.org/wp-content/uploads/2013/07/Puppet使用详解-入门.pptx</a>&quot;]</p>
+        <p>[gview file=&quot;<a href="http://liucy.org/wp-content/uploads/2013/07/Puppet使用详解-入门.pptx" target="_blank">http://liucy.org/wp-content/uploads/2013/07/Puppet使用详解-入门.pptx</a>&quot;]</p>
 
       
     </div>
@@ -259,7 +259,7 @@ sudo keytool -importkeystore  -destkeystore keystore.jks -srckeystore activemq.p
     </header>
     <div class="entry">
       
-        <p><a href="http://liucy.org/wp-content/uploads/2013/07/证书签名.png"><img src="http://liucy.org/wp-content/uploads/2013/07/证书签名.png" alt="证书签名"></a></p>
+        <p><a href="http://liucy.org/wp-content/uploads/2013/07/证书签名.png" target="_blank"><img src="http://liucy.org/wp-content/uploads/2013/07/证书签名.png" alt="证书签名"></a></p>
 
       
     </div>
@@ -296,7 +296,7 @@ sudo keytool -importkeystore  -destkeystore keystore.jks -srckeystore activemq.p
 <p>&nbsp;</p>
 <p>&nbsp;</p>
 <p>&nbsp;</p>
-<p><a href="http://liucy.org/wp-content/uploads/2013/07/Puppet-CS结构配置应用详细流程.png"><img src="http://liucy.org/wp-content/uploads/2013/07/Puppet-CS结构配置应用详细流程.png" alt="Puppet_cs"></a></p>
+<p><a href="http://liucy.org/wp-content/uploads/2013/07/Puppet-CS结构配置应用详细流程.png" target="_blank"><img src="http://liucy.org/wp-content/uploads/2013/07/Puppet-CS结构配置应用详细流程.png" alt="Puppet_cs"></a></p>
 <p>&nbsp;</p>
 <p>前段时间画的图，如果有错误，欢迎更正。</p>
 
@@ -456,7 +456,7 @@ result</code></pre>
   <div class="search">
   <form action="//google.com/search" method="get" accept-charset="utf-8">
     <input type="search" name="q" results="0" placeholder="Search">
-    <input type="hidden" name="q" value="site:liucy.org">
+    <input type="hidden" name="q" value="site:blog.liucy.org">
   </form>
 </div>
 
