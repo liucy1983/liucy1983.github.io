@@ -156,38 +156,63 @@ connector = activemq    ## connector plugin，连接插件，这里先用的是a
 direct_addressing = 1   ## 是否支持直连模式，也就是直接指定一台机器执行命令，而不是广播
 plugin.activemq.pool.size = 1    ## activemq连接池，可以配置多个activemq
 plugin.activemq.pool.1.host = &lt;%= @activemq_server %&gt;  ##activemq服务器地址，如果你是用Puppet来配置，就在调用类的时候把activemq_server变量赋值，如果是直接使用就把这里换成你实际的服务器地址，比如plugin.activemq.pool.1.host = activemq.liucy.org
-plugin.activemq.pool.1.port = 61614  ## 连接activemq的端口，这个我们在配置它的时候是指定的了。不记得的话可以翻上面的配置。<br>plugin.activemq.pool.1.user = mcollective ## 连接activemq的用户，这个也是我们在上面配置的<br>plugin.activemq.pool.1.password = &lt;%= @activemq_mcollective_password %&gt;  ## 密码，不用我说了吧<br>plugin.activemq.pool.1.ssl = 1  ## 连接activemq是否使用ssl<br>plugin.activemq.pool.1.ssl.ca = &lt;%= ssldir %&gt;/certs/ca.pem  ## CA的地址<br>plugin.activemq.pool.1.ssl.cert = &lt;%= ssldir %&gt;/certs/&lt;%= scope.lookupvar(‘::clientcert’) %&gt;.pem  ## 我们在传输层凭证准备的时候的Server证书，也就是puppet agent的证书，/var/lib/puppet/ssl/certs/主机名.liucy.org.pem<br>plugin.activemq.pool.1.ssl.key = &lt;%= ssldir %&gt;/private_keys/&lt;%= scope.lookupvar(‘::clientcert’) %&gt;.pem  ## /var/lib/puppet/ssl/private_keys/主机名.liucy.org.pem<br>plugin.activemq.pool.1.ssl.fallback = 0</p>
-<h1>SSL security plugin settings:</h1>
-<p>securityprovider = ssl ## 应用层验证方式，ssl<br>plugin.ssl_client_cert_dir = /etc/mcollective/clients ## 存放客户端证书的目录，我们在上面已经创建了，但是还没有存证书进去，等下面配置完客户端后就会有了。<br>plugin.ssl_server_private = /etc/mcollective/server_private.pem  ## 凭证准备时，生成的共享Server key，我们在上面的操作中也将它们保存在了/etc/mcollective目录<br>plugin.ssl_server_public = /etc/mcollective/server_public.pem</p>
-<h1>Facts, identity, and classes:</h1>
-<p>identity = &lt;%= scope.lookupvar(‘::fqdn’) %&gt;  ## 主机标识，FQDN<br>factsource = yaml  ## 我们上面写的facts文件，源格式是yaml，下面是指定的文件路径<br>plugin.yaml = /etc/mcollective/facts.yaml<br>classesfile = /var/lib/puppet/state/classes.txt ## Puppet类文件，此文件记录上次获取的Catalog中都有那些类</p>
-<h1>No additional subcollectives:</h1>
-<p>collectives = mcollective  ## subcollectives，分组成功<br>main_collective = mcollective  ## 主组</p>
-<h1>Registration:</h1>
-<h1>We don&#39;t configure a listener, and only send these messages to keep the</h1>
-<h1>Stomp connection alive. This will use the default “agentlist” registration</h1>
-<h1>plugin.</h1>
-<p>registerinterval = 600  ## 应该是类似于心跳机制吧，定时发送信息到ActiveMQ以确保主机存活</p>
-<h1>Auditing (optional):</h1>
-<h1>If you turn this on, you must arrange to rotate the log file it creates.</h1>
-<p>rpcaudit = 1  ## 审计功能配置<br>rpcauditprovider = logfile<br>plugin.rpcaudit.logfile = /var/log/mcollective-audit.log</p>
-<h1>Authorization:</h1>
-<h1>If you turn this on now, you won&#39;t be able to issue most MCollective</h1>
-<h1>commands, although <code>mco ping</code> will work. You should deploy the</h1>
-<h1>ActionPolicy plugin before uncommenting this; see “Deploy Plugins” below.</h1>
-<h1>rpcauthorization = 1  ## 更细粒度的权限设置插件，我们这里暂时没有启用</h1>
-<h1>rpcauthprovider = action_policy</h1>
-<h1>plugin.actionpolicy.allow_unconfigured = 1</h1>
-<h1>Logging:</h1>
-<p>logger_type = file  ## 日志相关配置<br>loglevel = info<br>logfile = /var/log/mcollective.log<br>keeplogs = 5<br>max_log_size = 2097152<br>logfacility = user</p>
-<h1>Platform defaults:</h1>
-<h1>These settings differ based on platform; the default config file created by</h1>
-<h1>the package should include correct values. If you are managing settings as</h1>
-<h1>resources, you can ignore them, but with a template you&#39;ll have to account</h1>
-<h1>for the differences.</h1>
-<p>&lt;% if scope.lookupvar(‘::osfamily’) == ‘RedHat’ -%&gt;  ## 不同Linux发行版中保存MCollective插件的路径是不同的，所以这里写了一个判断。如果你确定你只使用CentOS或是Ubuntu，可以直接写对应的路径就好。<br>libdir = /usr/libexec/mcollective<br>daemonize = 1<br>&lt;% elsif scope.lookupvar(‘::osfamily’) == ‘Debian’ -%&gt;<br>libdir = /usr/share/mcollective/plugins<br>daemonize = 1<br>&lt;% else -%&gt;</p>
-<h1>INSERT PLATFORM-APPROPRIATE VALUES FOR LIBDIR AND DAEMONIZE</h1>
-<p>&lt;% end %&gt;</pre><br>4. 安装配置MCollective Client</p>
+plugin.activemq.pool.1.port = 61614  ## 连接activemq的端口，这个我们在配置它的时候是指定的了。不记得的话可以翻上面的配置。<br>plugin.activemq.pool.1.user = mcollective ## 连接activemq的用户，这个也是我们在上面配置的
+plugin.activemq.pool.1.password = &lt;%= @activemq_mcollective_password %&gt;  ## 密码，不用我说了吧
+plugin.activemq.pool.1.ssl = 1  ## 连接activemq是否使用ssl
+plugin.activemq.pool.1.ssl.ca = &lt;%= ssldir %&gt;/certs/ca.pem  ## CA的地址
+plugin.activemq.pool.1.ssl.cert = &lt;%= ssldir %&gt;/certs/&lt;%= scope.lookupvar(‘::clientcert’) %&gt;.pem  ## 我们在传输层凭证准备的时候的Server证书，也就是puppet agent的证书，/var/lib/puppet/ssl/certs/主机名.liucy.org.pem
+plugin.activemq.pool.1.ssl.key = &lt;%= ssldir %&gt;/private_keys/&lt;%= scope.lookupvar(‘::clientcert’) %&gt;.pem  ## /var/lib/puppet/ssl/private_keys/主机名.liucy.org.pem
+plugin.activemq.pool.1.ssl.fallback = 0
+## SSL security plugin settings:
+securityprovider = ssl ## 应用层验证方式，ssl
+plugin.ssl_client_cert_dir = /etc/mcollective/clients ## 存放客户端证书的目录，我们在上面已经创建了，但是还没有存证书进去，等下面配置完客户端后就会有了。
+plugin.ssl_server_private = /etc/mcollective/server_private.pem  ## 凭证准备时，生成的共享Server key，我们在上面的操作中也将它们保存在了/etc/mcollective目录
+plugin.ssl_server_public = /etc/mcollective/server_public.pem
+## Facts, identity, and classes:
+identity = &lt;%= scope.lookupvar(‘::fqdn’) %&gt;  ## 主机标识，FQDN<br>factsource = yaml  ## 我们上面写的facts文件，源格式是yaml，下面是指定的文件路径
+plugin.yaml = /etc/mcollective/facts.yaml<br>classesfile = /var/lib/puppet/state/classes.txt ## Puppet类文件，此文件记录上次获取的Catalog中都有那些类
+## No additional subcollectives:
+collectives = mcollective  ## subcollectives，分组
+main_collective = mcollective  ## 主组
+## Registration:
+## We don&#39;t configure a listener, and only send these messages to keep the
+## Stomp connection alive. This will use the default “agentlist” registration
+## plugin.
+registerinterval = 600  ## 应该是类似于心跳机制吧，定时发送信息到ActiveMQ以确保主机存活
+## Auditing (optional):
+## If you turn this on, you must arrange to rotate the log file it creates.
+## rpcaudit = 1  ## 审计功能配置<br>rpcauditprovider = logfile
+plugin.rpcaudit.logfile = /var/log/mcollective-audit.log
+## Authorization:
+## If you turn this on now, you won&#39;t be able to issue most MCollective
+## commands, although <code>mco ping</code> will work. You should deploy the
+## ActionPolicy plugin before uncommenting this; see “Deploy Plugins” below.
+## rpcauthorization = 1  ## 更细粒度的权限设置插件，我们这里暂时没有启用
+## rpcauthprovider = action_policy
+## plugin.actionpolicy.allow_unconfigured = 1
+## Logging:
+<logger_type = file  ## 日志相关配置
+loglevel = info
+logfile = /var/log/mcollective.log
+keeplogs = 5
+max_log_size = 2097152
+logfacility = user
+## Platform defaults:
+## These settings differ based on platform; the default config file created by
+## the package should include correct values. If you are managing settings as
+## resources, you can ignore them, but with a template you&#39;ll have to account
+## for the differences.
+&lt;% if scope.lookupvar(‘::osfamily’) == ‘RedHat’ -%&gt;  ## 不同Linux发行版中保存MCollective插件的路径是不同的，所以这里写了一个判断。如果你确定你只使用CentOS或是Ubuntu，可以直接写对应的路径就好。
+libdir = /usr/libexec/mcollective
+daemonize = 1
+>&lt;% elsif scope.lookupvar(‘::osfamily’) == ‘Debian’ -%&gt;
+libdir = /usr/share/mcollective/plugins
+daemonize = 1
+&lt;% else -%&gt;</p>
+## INSERT PLATFORM-APPROPRIATE VALUES FOR LIBDIR AND DAEMONIZE
+&lt;% end %&gt;
+</pre>
+<br>4. 安装配置MCollective Client
 <ul>
 <li><span style="line-height: 1.714285714; font-size: 1rem;"><strong>安装：</strong>yum install mcollective-client</span></li>
 <li><strong>生成凭证：</strong> 官网上关于这部分的配置写的非常悬乎，弄了一堆的命令。主要是因为，他们想的是做为client，目标是人，也就是管理员。而这个管理员是复数，一个大公司中有多个管理员，那么就要给每人一个管理机的普通用户，他们登录上来之后执行mco命令去控制自己有权限的服务器。所以才在用户的家目录下创建了.mcollective.d目录，每个用户都有自己的证书和配置。<br>而，在我周边的运维同鞋圈子中，一个人搞定一个公司网络的情况居多，也就是说，不需要这么复杂的配置，我就是root用户登录puppet master然后执行mco命令就好了。所以下面的内容就是为了这个需求准备的。<br>官方的文档里，这部分执行了下面的命令：<br><pre class="brush:bash">mkdir -p ~/.mcollective.d/credentials<br>puppet certificate generate &lt;NAME&gt; —ssldir ~/.mcollective.d/credentials —ca-location remote —ca_server &lt;CA PUPPET MASTER<br>puppet certificate find &lt;NAME&gt; —ssldir ~/.mcollective.d/credentials —ca-location remote —ca_server &lt;CA PUPPET MASTER&gt;<br>puppet certificate find mcollective-servers —ssldir ~/.mcollective.d/credentials —ca-location remote —ca_server &lt;CA PUPPET MASTER&gt;<br>puppet certificate find ca —ssldir ~/.mcollective.d/credentials —ca-location remote —ca_server &lt;CA PUPPET MASTER&gt;</pre><br>这几个命令的目的是通过Puppet Master的CA为mc client的用户生成一份新的证书，验证完成后把certs/&lt;name&gt;.pem和private_keys/&lt;name&gt;.pem放到.mcollective.d/credential目录下，然后再把ca.pem，mcollective-server.pem文件也拉进来。<br>而在我们的需求中，我不需要生成新的证书，因为我是Puppet Master，我也不需要下载ca.pem和mcollective-server.pem，因为我在前面的操作中也生成了。所以这部分是不需要操作的。直接进入下面的配置文件步骤。</li>
