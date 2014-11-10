@@ -147,12 +147,16 @@ sudo keytool -importkeystore  -destkeystore keystore.jks -srckeystore activemq.p
   content  =&gt; inline_template("&lt;%= scope.to_hash.reject { |k,v| k.to_s =~ /(uptime_seconds|timestamp|free)/ }.to_yaml %&gt;"), # exclude rapidly changing facts
 }</pre>
 </li>
-<li><p>配置文件：这是配置mc server的最后一步了，生成/etc/mcollective/server.cfg文件。<br>这个文件稍微有点麻烦。原因是因为当你使用MCollective的功能越多时，这个文件的配置项就越多，而且有可能会一部分机器有这个配置，另一部分有那个配置。<br>不过好处是，当你用到那个地步时，你使用Puppet的能力也一定会随之增长。所以，我现在就只写个简单的配置，让我们的环境能跑起来。<br>然后，同样，这样配置文件是使用Puppet来完成的，MCollective官方文档里提供了它的模板（PS：这篇文章绝大部分—95%—的思路、文字都来源于官方文档，估计我只是翻译了一下），我把它贴在下面。然后提供一些翻译，告诉各位，这个配置文件都有那几部分内容，配置时又需要小心什么。<br><pre class="brush:ruby">&lt;% ssldir = ‘/var/lib/puppet/ssl’ %&gt; ##这里新建了ssldir变量，用于标识ssl文件目录</p>
-<h1>/etc/mcollective/server.cfg</h1>
-</li>
-</ul>
-<h1>ActiveMQ connector settings:</h1>
-<p>connector = activemq    ## connector plugin，连接插件，这里先用的是activemq插件<br>direct_addressing = 1   ## 是否支持直连模式，也就是直接指定一台机器执行命令，而不是广播<br>plugin.activemq.pool.size = 1    ## activemq连接池，可以配置多个activemq<br>plugin.activemq.pool.1.host = &lt;%= @activemq_server %&gt;  ##activemq服务器地址，如果你是用Puppet来配置，就在调用类的时候把activemq_server变量赋值，如果是直接使用就把这里换成你实际的服务器地址，比如plugin.activemq.pool.1.host = activemq.liucy.org<br>plugin.activemq.pool.1.port = 61614  ## 连接activemq的端口，这个我们在配置它的时候是指定的了。不记得的话可以翻上面的配置。<br>plugin.activemq.pool.1.user = mcollective ## 连接activemq的用户，这个也是我们在上面配置的<br>plugin.activemq.pool.1.password = &lt;%= @activemq_mcollective_password %&gt;  ## 密码，不用我说了吧<br>plugin.activemq.pool.1.ssl = 1  ## 连接activemq是否使用ssl<br>plugin.activemq.pool.1.ssl.ca = &lt;%= ssldir %&gt;/certs/ca.pem  ## CA的地址<br>plugin.activemq.pool.1.ssl.cert = &lt;%= ssldir %&gt;/certs/&lt;%= scope.lookupvar(‘::clientcert’) %&gt;.pem  ## 我们在传输层凭证准备的时候的Server证书，也就是puppet agent的证书，/var/lib/puppet/ssl/certs/主机名.liucy.org.pem<br>plugin.activemq.pool.1.ssl.key = &lt;%= ssldir %&gt;/private_keys/&lt;%= scope.lookupvar(‘::clientcert’) %&gt;.pem  ## /var/lib/puppet/ssl/private_keys/主机名.liucy.org.pem<br>plugin.activemq.pool.1.ssl.fallback = 0</p>
+<li><p>配置文件：这是配置mc server的最后一步了，生成/etc/mcollective/server.cfg文件。<br>这个文件稍微有点麻烦。原因是因为当你使用MCollective的功能越多时，这个文件的配置项就越多，而且有可能会一部分机器有这个配置，另一部分有那个配置。<br>不过好处是，当你用到那个地步时，你使用Puppet的能力也一定会随之增长。所以，我现在就只写个简单的配置，让我们的环境能跑起来。<br>然后，同样，这样配置文件是使用Puppet来完成的，MCollective官方文档里提供了它的模板（PS：这篇文章绝大部分—95%—的思路、文字都来源于官方文档，估计我只是翻译了一下），我把它贴在下面。然后提供一些翻译，告诉各位，这个配置文件都有那几部分内容，配置时又需要小心什么。<br>
+<pre class="brush:ruby">
+&lt;% ssldir = ‘/var/lib/puppet/ssl’ %&gt; ##这里新建了ssldir变量，用于标识ssl文件目录
+## /etc/mcollective/server.cfg
+## ActiveMQ connector settings:
+connector = activemq    ## connector plugin，连接插件，这里先用的是activemq插件
+direct_addressing = 1   ## 是否支持直连模式，也就是直接指定一台机器执行命令，而不是广播
+plugin.activemq.pool.size = 1    ## activemq连接池，可以配置多个activemq
+plugin.activemq.pool.1.host = &lt;%= @activemq_server %&gt;  ##activemq服务器地址，如果你是用Puppet来配置，就在调用类的时候把activemq_server变量赋值，如果是直接使用就把这里换成你实际的服务器地址，比如plugin.activemq.pool.1.host = activemq.liucy.org
+plugin.activemq.pool.1.port = 61614  ## 连接activemq的端口，这个我们在配置它的时候是指定的了。不记得的话可以翻上面的配置。<br>plugin.activemq.pool.1.user = mcollective ## 连接activemq的用户，这个也是我们在上面配置的<br>plugin.activemq.pool.1.password = &lt;%= @activemq_mcollective_password %&gt;  ## 密码，不用我说了吧<br>plugin.activemq.pool.1.ssl = 1  ## 连接activemq是否使用ssl<br>plugin.activemq.pool.1.ssl.ca = &lt;%= ssldir %&gt;/certs/ca.pem  ## CA的地址<br>plugin.activemq.pool.1.ssl.cert = &lt;%= ssldir %&gt;/certs/&lt;%= scope.lookupvar(‘::clientcert’) %&gt;.pem  ## 我们在传输层凭证准备的时候的Server证书，也就是puppet agent的证书，/var/lib/puppet/ssl/certs/主机名.liucy.org.pem<br>plugin.activemq.pool.1.ssl.key = &lt;%= ssldir %&gt;/private_keys/&lt;%= scope.lookupvar(‘::clientcert’) %&gt;.pem  ## /var/lib/puppet/ssl/private_keys/主机名.liucy.org.pem<br>plugin.activemq.pool.1.ssl.fallback = 0</p>
 <h1>SSL security plugin settings:</h1>
 <p>securityprovider = ssl ## 应用层验证方式，ssl<br>plugin.ssl_client_cert_dir = /etc/mcollective/clients ## 存放客户端证书的目录，我们在上面已经创建了，但是还没有存证书进去，等下面配置完客户端后就会有了。<br>plugin.ssl_server_private = /etc/mcollective/server_private.pem  ## 凭证准备时，生成的共享Server key，我们在上面的操作中也将它们保存在了/etc/mcollective目录<br>plugin.ssl_server_public = /etc/mcollective/server_public.pem</p>
 <h1>Facts, identity, and classes:</h1>
